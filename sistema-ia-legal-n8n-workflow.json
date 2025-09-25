@@ -1,0 +1,619 @@
+{
+  "name": "Sistema de IA Legal - Workflow Completo",
+  "nodes": [
+    {
+      "parameters": {
+        "pollTimes": {
+          "item": [
+            {
+              "mode": "everyMinute"
+            }
+          ]
+        },
+        "simple": false,
+        "filters": {
+          "hasAttachments": true,
+          "search": "has:attachment (demanda OR contrato OR documento OR expediente)",
+          "downloadAttachments": true
+        },
+        "options": {
+          "downloadAttachments": true
+        }
+      },
+      "id": "gmail-trigger-documentos",
+      "name": "Gmail - Recibir Documentos Legales",
+      "type": "n8n-nodes-base.gmailTrigger",
+      "typeVersion": 1,
+      "position": [240, 300],
+      "webhookId": "documentos-legales-trigger",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "gmail-oauth2",
+          "name": "Cuenta Gmail OAuth2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "inputDataFieldName": "attachment[0]",
+        "name": "={{ $json.subject }}",
+        "folderId": {
+          "__rl": true,
+          "value": "carpeta-demandas-contratos-id",
+          "mode": "id"
+        }
+      },
+      "id": "subir-a-drive",
+      "name": "Subir a Google Drive",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [460, 300],
+      "operation": "upload",
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "google-drive-oauth2",
+          "name": "Cuenta Google Drive OAuth2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "fileId": {
+          "__rl": true,
+          "value": "={{ $json.id }}",
+          "mode": "id"
+        }
+      },
+      "id": "descargar-desde-drive",
+      "name": "Descargar desde Google Drive",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [680, 300],
+      "operation": "download",
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "google-drive-oauth2",
+          "name": "Cuenta Google Drive OAuth2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "fileType": "pdf",
+        "options": {}
+      },
+      "id": "extraer-texto-pdf",
+      "name": "Extraer Texto del PDF",
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1,
+      "position": [900, 300]
+    },
+    {
+      "parameters": {
+        "resource": "message",
+        "model": "gpt-4o-mini",
+        "options": {
+          "temperature": 0.3
+        },
+        "messages": {
+          "values": [
+            {
+              "content": "Eres un analista legal senior. Tu trabajo es analizar documentos legales y proporcionar un resumen detallado.\n\nEl input será una cadena de texto que contiene todo el texto extraído de un archivo PDF adjunto.\n\nTexto del Documento: {{ $json.text }}\nFecha de Recepción: {{ new Date().toISOString().split('T')[0] }}\n\nTarea: Lee el texto del documento legal y extrae la siguiente información:\n\n1. **Fecha de Recepción**: Fecha de hoy en formato YYYY-MM-DD\n2. **Resumen**: Resumen conciso de 200 palabras de la demanda/documento\n3. **Problemas Clave**: Lista de 5 problemas clave con puntos de riesgo identificados\n4. **Fecha Límite**: Calcular fecha límite basada en la fecha de presentación y jurisdicción\n5. **Asunto del Email**: Asunto breve para email interno (menos de 10 palabras)\n6. **Email de Resumen**: Combinar resumen y problemas clave en un email HTML para el equipo\n\nFormato de salida esperado:\n```json\n{\n  \"fechaRecepcion\": \"2024-01-15\",\n  \"resumen\": \"Resumen breve aquí...\",\n  \"problemasClave\": [\"Problema 1\", \"Problema 2\", \"Problema 3\", \"Problema 4\", \"Problema 5\"],\n  \"fechaLimite\": \"2024-06-29\",\n  \"asuntoEmail\": \"Resumen de Demanda: Empresa A vs Empresa B\",\n  \"emailResumen\": \"<h3>Resumen de Documento Legal</h3><p><strong>Resumen:</strong> Resumen breve...</p><h4>Problemas Clave:</h4><ul><li>Problema 1</li><li>Problema 2</li></ul>\"\n}\n```\n\nDevuelve ÚNICAMENTE un objeto JSON válido con la estructura anterior.",
+              "role": "user"
+            }
+          ]
+        }
+      },
+      "id": "analizar-documento",
+      "name": "Analizar Documento Legal",
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 1,
+      "position": [1120, 300],
+      "credentials": {
+        "openAiApi": {
+          "id": "openai-api",
+          "name": "API OpenAI"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "appendOrUpdate",
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "hoja-resumenes-legales-id",
+          "mode": "id"
+        },
+        "sheetName": "Hoja1",
+        "columnToMatchOn": "",
+        "valueToMatchOn": "",
+        "valuesToSend": "defineInNode",
+        "options": {
+          "usePathForKeyRow": true
+        },
+        "fieldsUi": {
+          "values": [
+            {
+              "column": "Fecha",
+              "value": "={{ $json.fechaRecepcion }}"
+            },
+            {
+              "column": "Asunto",
+              "value": "={{ $json.asuntoEmail }}"
+            },
+            {
+              "column": "Problema 1",
+              "value": "={{ $json.problemasClave[0] }}"
+            },
+            {
+              "column": "Problema 2",
+              "value": "={{ $json.problemasClave[1] }}"
+            },
+            {
+              "column": "Problema 3",
+              "value": "={{ $json.problemasClave[2] }}"
+            },
+            {
+              "column": "Problema 4",
+              "value": "={{ $json.problemasClave[3] }}"
+            },
+            {
+              "column": "Problema 5",
+              "value": "={{ $json.problemasClave[4] }}"
+            },
+            {
+              "column": "Fecha Límite",
+              "value": "={{ $json.fechaLimite }}"
+            },
+            {
+              "column": "Resumen Completo",
+              "value": "={{ $json.resumen }}"
+            }
+          ]
+        }
+      },
+      "id": "guardar-en-hojas-documentos",
+      "name": "Guardar en Google Sheets - Documentos",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [1340, 300],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "google-sheets-oauth2",
+          "name": "Cuenta Google Sheets OAuth2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "send",
+        "toEmail": "equipo-legal@tuempresa.com",
+        "subject": "={{ $json.asuntoEmail }}",
+        "message": "={{ $json.emailResumen }}",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "id": "enviar-email-documentos",
+      "name": "Enviar Email - Resumen de Documento",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2,
+      "position": [1560, 300],
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "gmail-oauth2",
+          "name": "Cuenta Gmail OAuth2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "pollTimes": {
+          "item": [
+            {
+              "mode": "everyMinute"
+            }
+          ]
+        },
+        "folderId": {
+          "__rl": true,
+          "value": "carpeta-analisis-contratos-id",
+          "mode": "id"
+        },
+        "event": "fileUploaded"
+      },
+      "id": "drive-trigger-contratos",
+      "name": "Google Drive - Recibir Contratos",
+      "type": "n8n-nodes-base.googleDriveTrigger",
+      "typeVersion": 1,
+      "position": [240, 600],
+      "webhookId": "analisis-contratos-trigger",
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "google-drive-oauth2",
+          "name": "Cuenta Google Drive OAuth2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "fileId": {
+          "__rl": true,
+          "value": "={{ $json.id }}",
+          "mode": "id"
+        }
+      },
+      "id": "descargar-contrato",
+      "name": "Descargar Contrato",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [460, 600],
+      "operation": "download",
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "google-drive-oauth2",
+          "name": "Cuenta Google Drive OAuth2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "fileType": "pdf",
+        "options": {}
+      },
+      "id": "extraer-texto-contrato",
+      "name": "Extraer Texto del Contrato",
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1,
+      "position": [680, 600]
+    },
+    {
+      "parameters": {
+        "resource": "message",
+        "model": "gpt-4o-mini",
+        "options": {
+          "temperature": 0.3
+        },
+        "messages": {
+          "values": [
+            {
+              "content": "Eres un extractor de cláusulas legales y analista legal senior. Dado el texto completo de un contrato, analízalo y proporciona una revisión integral.\n\nTexto del Contrato: {{ $json.text }}\n\nTarea: Analiza el contrato y proporciona la siguiente información:\n\n1. **Asunto del Email**: Asunto breve para el email de revisión del contrato\n2. **Cuerpo del Email**: Email HTML completo que incluya:\n   - Saludo\n   - Resumen del contrato\n   - Desglose de cláusulas con evaluación de riesgo\n   - Declaración de cierre\n\nEnfócate en estas cláusulas clave:\n- Cláusula de terminación\n- Cláusula de indemnización\n- Cláusula de confidencialidad\n- Cláusula de fuerza mayor\n- Cláusula de ley aplicable\n- Cláusula de limitación de responsabilidad\n\nPara cada cláusula encontrada, proporciona:\n- Paráfrasis breve (1-2 oraciones)\n- Nivel de riesgo: Bajo, Medio o Alto\n- Referencia exacta de ubicación\n- Extracto de texto relevante\n\nFormato de salida esperado:\n```json\n{\n  \"asunto\": \"Resumen de Revisión de Contrato de Servicios\",\n  \"cuerpo\": \"<h3>Resumen de Revisión de Contrato</h3><p>Estimado Equipo,</p><p><strong>Resumen del Contrato:</strong> Este contrato de servicios entre...</p><h4>Desglose de Cláusulas:</h4><ul><li><strong>Cláusula de Terminación:</strong> Riesgo Medio - Encontrada en Sección 8.2...</li></ul><p>Saludos cordiales,<br>Asistente de IA Legal</p>\"\n}\n```\n\nDevuelve ÚNICAMENTE un objeto JSON válido con la estructura anterior.",
+              "role": "user"
+            }
+          ]
+        }
+      },
+      "id": "analizar-contrato",
+      "name": "Analizar Contrato",
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 1,
+      "position": [900, 600],
+      "credentials": {
+        "openAiApi": {
+          "id": "openai-api",
+          "name": "API OpenAI"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "appendOrUpdate",
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "hoja-analisis-contratos-id",
+          "mode": "id"
+        },
+        "sheetName": "Hoja1",
+        "valuesToSend": "defineInNode",
+        "fieldsUi": {
+          "values": [
+            {
+              "column": "Contrato",
+              "value": "={{ $json.asunto }}"
+            },
+            {
+              "column": "Análisis",
+              "value": "={{ $json.cuerpo }}"
+            }
+          ]
+        }
+      },
+      "id": "guardar-analisis-contrato",
+      "name": "Guardar Análisis de Contrato",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [1120, 600],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "google-sheets-oauth2",
+          "name": "Cuenta Google Sheets OAuth2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "send",
+        "toEmail": "equipo-legal@tuempresa.com",
+        "subject": "={{ $json.asunto }}",
+        "message": "={{ $json.cuerpo }}",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "id": "enviar-email-contrato",
+      "name": "Enviar Email de Análisis de Contrato",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2,
+      "position": [1340, 600],
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "gmail-oauth2",
+          "name": "Cuenta Gmail OAuth2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "chat",
+        "options": {}
+      },
+      "id": "chat-trigger",
+      "name": "Chat - Asistente de IA Principal",
+      "type": "n8n-nodes-base.chatTrigger",
+      "typeVersion": 1,
+      "position": [240, 900]
+    },
+    {
+      "parameters": {
+        "resource": "chat",
+        "options": {
+          "systemMessage": "Eres un asistente de IA para un bufete de abogados con acceso a tres herramientas principales:\n\n1. **Herramienta de Resúmenes de Documentos**: Una integración con Google Sheets que lee todos los resúmenes de documentos de nuestro flujo automatizado de procesamiento de documentos legales. Contiene resúmenes de demandas, presentaciones y otros documentos legales con problemas clave, fechas límite y análisis.\n\n2. **Herramienta de Análisis de Contratos**: Una integración con Google Sheets que lee todos los análisis de contratos de nuestro flujo automatizado de revisión de contratos. Contiene revisiones detalladas de contratos con desgloses de cláusulas, evaluaciones de riesgo y recomendaciones.\n\n3. **Herramienta de Envío de Gmail**: Envía emails y devuelve confirmación de éxito. Úsala para crear memorandos internos basados en la información y documentos que tenemos.\n\n**Reglas para el uso de herramientas:**\n- Si la pregunta del usuario es sobre contenido de documentos, problemas, fechas límite o demandas → usa la herramienta de Resúmenes de Documentos\n- Si la pregunta es sobre cláusulas de contratos, riesgos o análisis de contratos → usa la herramienta de Análisis de Contratos\n- Si el usuario quiere redactar un email, enviar un memo o crear un documento interno → usa la herramienta de Envío de Gmail\n\n**Formato de Memorando Interno:**\nAl crear memorandos internos, incluye estas secciones:\n- **Declaración de Hechos**: Antecedentes fácticos breves\n- **Problemas Presentados**: Problemas legales clave identificados\n- **Análisis Legal**: Análisis de la ley aplicable y precedentes\n- **Recomendaciones**: Recomendaciones específicas para próximos pasos\n\nSiempre proporciona respuestas precisas y útiles basadas en los datos disponibles de tus herramientas.",
+          "model": "gpt-4o-mini",
+          "temperature": 0.3
+        }
+      },
+      "id": "asistente-ia-principal",
+      "name": "Asistente de IA Principal - Abogado",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1,
+      "position": [460, 900],
+      "credentials": {
+        "openAiApi": {
+          "id": "openai-api",
+          "name": "API OpenAI"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "get",
+        "operation": "get",
+        "documentId": {
+          "__rl": true,
+          "value": "hoja-resumenes-legales-id",
+          "mode": "id"
+        },
+        "sheetName": "Hoja1",
+        "options": {}
+      },
+      "id": "leer-resumenes-documentos",
+      "name": "Leer Resúmenes de Documentos",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [680, 780],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "google-sheets-oauth2",
+          "name": "Cuenta Google Sheets OAuth2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "get",
+        "operation": "get",
+        "documentId": {
+          "__rl": true,
+          "value": "hoja-analisis-contratos-id",
+          "mode": "id"
+        },
+        "sheetName": "Hoja1",
+        "options": {}
+      },
+      "id": "leer-analisis-contratos",
+      "name": "Leer Análisis de Contratos",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [680, 1020],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "google-sheets-oauth2",
+          "name": "Cuenta Google Sheets OAuth2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "send",
+        "toEmail": "equipo-legal@tuempresa.com",
+        "subject": "={{ $json.asunto || 'Memorando Legal Interno' }}",
+        "message": "={{ $json.mensaje || $json.contenido }}",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "id": "enviar-email-memo",
+      "name": "Enviar Email de Memorando",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2,
+      "position": [680, 1260],
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "gmail-oauth2",
+          "name": "Cuenta Gmail OAuth2"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Gmail - Recibir Documentos Legales": {
+      "main": [
+        [
+          {
+            "node": "Subir a Google Drive",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Subir a Google Drive": {
+      "main": [
+        [
+          {
+            "node": "Descargar desde Google Drive",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Descargar desde Google Drive": {
+      "main": [
+        [
+          {
+            "node": "Extraer Texto del PDF",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extraer Texto del PDF": {
+      "main": [
+        [
+          {
+            "node": "Analizar Documento Legal",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Analizar Documento Legal": {
+      "main": [
+        [
+          {
+            "node": "Guardar en Google Sheets - Documentos",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Enviar Email - Resumen de Documento",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Drive - Recibir Contratos": {
+      "main": [
+        [
+          {
+            "node": "Descargar Contrato",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Descargar Contrato": {
+      "main": [
+        [
+          {
+            "node": "Extraer Texto del Contrato",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extraer Texto del Contrato": {
+      "main": [
+        [
+          {
+            "node": "Analizar Contrato",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Analizar Contrato": {
+      "main": [
+        [
+          {
+            "node": "Guardar Análisis de Contrato",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Enviar Email de Análisis de Contrato",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Chat - Asistente de IA Principal": {
+      "main": [
+        [
+          {
+            "node": "Asistente de IA Principal - Abogado",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Asistente de IA Principal - Abogado": {
+      "main": [
+        [
+          {
+            "node": "Leer Resúmenes de Documentos",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Leer Análisis de Contratos",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Enviar Email de Memorando",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [
+    {
+      "createdAt": "2024-01-15T10:00:00.000Z",
+      "updatedAt": "2024-01-15T10:00:00.000Z",
+      "id": "sistema-ia-legal",
+      "name": "Sistema de IA Legal"
+    }
+  ],
+  "triggerCount": 3,
+  "updatedAt": "2024-01-15T10:00:00.000Z",
+  "versionId": "1"
+}
