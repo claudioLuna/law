@@ -1,0 +1,619 @@
+{
+  "name": "Legal AI System - Complete Workflow",
+  "nodes": [
+    {
+      "parameters": {
+        "pollTimes": {
+          "item": [
+            {
+              "mode": "everyMinute"
+            }
+          ]
+        },
+        "simple": false,
+        "filters": {
+          "hasAttachments": true,
+          "search": "has:attachment (complaint OR contract OR filing)",
+          "downloadAttachments": true
+        },
+        "options": {
+          "downloadAttachments": true
+        }
+      },
+      "id": "gmail-trigger-documents",
+      "name": "Gmail Trigger - Legal Documents",
+      "type": "n8n-nodes-base.gmailTrigger",
+      "typeVersion": 1,
+      "position": [240, 300],
+      "webhookId": "legal-documents-trigger",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "gmail-oauth2",
+          "name": "Gmail OAuth2 Account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "inputDataFieldName": "attachment[0]",
+        "name": "={{ $json.subject }}",
+        "folderId": {
+          "__rl": true,
+          "value": "complaints-contracts-folder-id",
+          "mode": "id"
+        }
+      },
+      "id": "upload-to-drive",
+      "name": "Upload to Google Drive",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [460, 300],
+      "operation": "upload",
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "google-drive-oauth2",
+          "name": "Google Drive OAuth2 Account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "fileId": {
+          "__rl": true,
+          "value": "={{ $json.id }}",
+          "mode": "id"
+        }
+      },
+      "id": "download-from-drive",
+      "name": "Download from Google Drive",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [680, 300],
+      "operation": "download",
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "google-drive-oauth2",
+          "name": "Google Drive OAuth2 Account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "fileType": "pdf",
+        "options": {}
+      },
+      "id": "extract-text-pdf",
+      "name": "Extract Text from PDF",
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1,
+      "position": [900, 300]
+    },
+    {
+      "parameters": {
+        "resource": "message",
+        "model": "gpt-4o-mini",
+        "options": {
+          "temperature": 0.3
+        },
+        "messages": {
+          "values": [
+            {
+              "content": "You are a senior legal analyst. Your job is to take legal documents and provide a thoughtful summary.\n\nThe input will be a single string containing all the text extracted from a PDF attachment.\n\nDocument Text: {{ $json.text }}\nDate Received: {{ new Date().toISOString().split('T')[0] }}\n\nTask: Read through the legal document text and extract the following information:\n\n1. **Date Received**: Today's date in YYYY-MM-DD format\n2. **Summary**: Concise 200-word summary of the complaint/document\n3. **Key Issues**: List 5 key issues with risk points identified\n4. **Deadline**: Calculate deadline based on filing date and jurisdiction\n5. **Email Subject**: Brief subject for internal email (less than 10 words)\n6. **Summary Email**: Combine summary and key issues into one HTML-formatted email for the team\n\nExample output format:\n```json\n{\n  \"dateReceived\": \"2024-01-15\",\n  \"summary\": \"Brief summary here...\",\n  \"keyIssues\": [\"Issue 1\", \"Issue 2\", \"Issue 3\", \"Issue 4\", \"Issue 5\"],\n  \"deadline\": \"2024-06-29\",\n  \"emailSubject\": \"Complaint Summary: Acme vs Zephyr\",\n  \"summaryEmail\": \"<h3>Legal Document Summary</h3><p><strong>Summary:</strong> Brief summary...</p><h4>Key Issues:</h4><ul><li>Issue 1</li><li>Issue 2</li></ul>\"\n}\n```\n\nReturn ONLY a valid JSON object with the above structure.",
+              "role": "user"
+            }
+          ]
+        }
+      },
+      "id": "analyze-document",
+      "name": "Analyze Legal Document",
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 1,
+      "position": [1120, 300],
+      "credentials": {
+        "openAiApi": {
+          "id": "openai-api",
+          "name": "OpenAI API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "appendOrUpdate",
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "legal-summaries-sheet-id",
+          "mode": "id"
+        },
+        "sheetName": "Sheet1",
+        "columnToMatchOn": "",
+        "valueToMatchOn": "",
+        "valuesToSend": "defineInNode",
+        "options": {
+          "usePathForKeyRow": true
+        },
+        "fieldsUi": {
+          "values": [
+            {
+              "column": "Date",
+              "value": "={{ $json.dateReceived }}"
+            },
+            {
+              "column": "Subject",
+              "value": "={{ $json.emailSubject }}"
+            },
+            {
+              "column": "Issue 1",
+              "value": "={{ $json.keyIssues[0] }}"
+            },
+            {
+              "column": "Issue 2",
+              "value": "={{ $json.keyIssues[1] }}"
+            },
+            {
+              "column": "Issue 3",
+              "value": "={{ $json.keyIssues[2] }}"
+            },
+            {
+              "column": "Issue 4",
+              "value": "={{ $json.keyIssues[3] }}"
+            },
+            {
+              "column": "Issue 5",
+              "value": "={{ $json.keyIssues[4] }}"
+            },
+            {
+              "column": "Deadline",
+              "value": "={{ $json.deadline }}"
+            },
+            {
+              "column": "Full Summary",
+              "value": "={{ $json.summary }}"
+            }
+          ]
+        }
+      },
+      "id": "save-to-sheets-documents",
+      "name": "Save to Google Sheets - Documents",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [1340, 300],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "google-sheets-oauth2",
+          "name": "Google Sheets OAuth2 Account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "send",
+        "toEmail": "legal-team@yourfirm.com",
+        "subject": "={{ $json.emailSubject }}",
+        "message": "={{ $json.summaryEmail }}",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "id": "send-email-documents",
+      "name": "Send Email - Document Summary",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2,
+      "position": [1560, 300],
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "gmail-oauth2",
+          "name": "Gmail OAuth2 Account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "pollTimes": {
+          "item": [
+            {
+              "mode": "everyMinute"
+            }
+          ]
+        },
+        "folderId": {
+          "__rl": true,
+          "value": "contract-analysis-folder-id",
+          "mode": "id"
+        },
+        "event": "fileUploaded"
+      },
+      "id": "drive-trigger-contracts",
+      "name": "Google Drive Trigger - Contracts",
+      "type": "n8n-nodes-base.googleDriveTrigger",
+      "typeVersion": 1,
+      "position": [240, 600],
+      "webhookId": "contract-analysis-trigger",
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "google-drive-oauth2",
+          "name": "Google Drive OAuth2 Account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "fileId": {
+          "__rl": true,
+          "value": "={{ $json.id }}",
+          "mode": "id"
+        }
+      },
+      "id": "download-contract",
+      "name": "Download Contract",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [460, 600],
+      "operation": "download",
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "google-drive-oauth2",
+          "name": "Google Drive OAuth2 Account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "fileType": "pdf",
+        "options": {}
+      },
+      "id": "extract-contract-text",
+      "name": "Extract Contract Text",
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1,
+      "position": [680, 600]
+    },
+    {
+      "parameters": {
+        "resource": "message",
+        "model": "gpt-4o-mini",
+        "options": {
+          "temperature": 0.3
+        },
+        "messages": {
+          "values": [
+            {
+              "content": "You are a legal clause extractor and senior legal analyst. Given the full text of a contract, analyze it and provide a comprehensive review.\n\nContract Text: {{ $json.text }}\n\nTask: Analyze the contract and provide the following information:\n\n1. **Email Subject**: Brief subject for the contract review email\n2. **Email Body**: Comprehensive HTML-formatted email including:\n   - Greeting\n   - Contract summary\n   - Clause breakdown with risk assessment\n   - Closing statement\n\nFocus on these key clauses:\n- Termination clause\n- Indemnity clause\n- Confidentiality clause\n- Force majeure clause\n- Governing law clause\n- Limitation of liability clause\n\nFor each clause found, provide:\n- Brief paraphrase (1-2 sentences)\n- Risk level: Low, Medium, or High\n- Exact location reference\n- Relevant text excerpt\n\nExample output format:\n```json\n{\n  \"subject\": \"Service Agreement Review Summary\",\n  \"body\": \"<h3>Contract Review Summary</h3><p>Dear Team,</p><p><strong>Contract Summary:</strong> This service agreement between...</p><h4>Clause Breakdown:</h4><ul><li><strong>Termination Clause:</strong> Medium Risk - Found in Section 8.2...</li></ul><p>Best regards,<br>Legal AI Assistant</p>\"\n}\n```\n\nReturn ONLY a valid JSON object with the above structure.",
+              "role": "user"
+            }
+          ]
+        }
+      },
+      "id": "analyze-contract",
+      "name": "Analyze Contract",
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 1,
+      "position": [900, 600],
+      "credentials": {
+        "openAiApi": {
+          "id": "openai-api",
+          "name": "OpenAI API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "appendOrUpdate",
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "contract-analysis-sheet-id",
+          "mode": "id"
+        },
+        "sheetName": "Sheet1",
+        "valuesToSend": "defineInNode",
+        "fieldsUi": {
+          "values": [
+            {
+              "column": "Contract",
+              "value": "={{ $json.subject }}"
+            },
+            {
+              "column": "Analysis",
+              "value": "={{ $json.body }}"
+            }
+          ]
+        }
+      },
+      "id": "save-contract-analysis",
+      "name": "Save Contract Analysis",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [1120, 600],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "google-sheets-oauth2",
+          "name": "Google Sheets OAuth2 Account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "send",
+        "toEmail": "legal-team@yourfirm.com",
+        "subject": "={{ $json.subject }}",
+        "message": "={{ $json.body }}",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "id": "send-contract-email",
+      "name": "Send Contract Analysis Email",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2,
+      "position": [1340, 600],
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "gmail-oauth2",
+          "name": "Gmail OAuth2 Account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "chat",
+        "options": {}
+      },
+      "id": "chat-trigger",
+      "name": "Chat Trigger - Main AI Agent",
+      "type": "n8n-nodes-base.chatTrigger",
+      "typeVersion": 1,
+      "position": [240, 900]
+    },
+    {
+      "parameters": {
+        "resource": "chat",
+        "options": {
+          "systemMessage": "You are a law firm AI assistant with access to three main tools:\n\n1. **Document Summaries Tool**: A Google Sheets integration that reads all document summaries from our automated legal document processing workflow. This contains summaries of complaints, filings, and other legal documents with key issues, deadlines, and analysis.\n\n2. **Contract Analysis Tool**: A Google Sheets integration that reads all contract analyses from our automated contract review workflow. This contains detailed contract reviews with clause breakdowns, risk assessments, and recommendations.\n\n3. **Gmail Sender Tool**: Sends emails and returns success confirmation. Use this to create internal memos based on the information and documents we have.\n\n**Rules for tool usage:**\n- If the user's question is about document content, issues, deadlines, or complaints → use Document Summaries tool\n- If the question is about contract clauses, risks, or contract analysis → use Contract Analysis tool  \n- If the user wants to draft an email, send a memo, or create an internal document → use Gmail Sender tool\n\n**Internal Memo Format:**\nWhen creating internal memos, include these sections:\n- **Statement of Facts**: Brief factual background\n- **Issues Presented**: Key legal issues identified\n- **Legal Analysis**: Analysis of applicable law and precedents\n- **Recommendations**: Specific recommendations for next steps\n\nAlways provide accurate, helpful responses based on the available data from your tools.",
+          "model": "gpt-4o-mini",
+          "temperature": 0.3
+        }
+      },
+      "id": "main-ai-agent",
+      "name": "Main AI Agent - Legal Assistant",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1,
+      "position": [460, 900],
+      "credentials": {
+        "openAiApi": {
+          "id": "openai-api",
+          "name": "OpenAI API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "get",
+        "operation": "get",
+        "documentId": {
+          "__rl": true,
+          "value": "legal-summaries-sheet-id",
+          "mode": "id"
+        },
+        "sheetName": "Sheet1",
+        "options": {}
+      },
+      "id": "read-document-summaries",
+      "name": "Read Document Summaries",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [680, 780],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "google-sheets-oauth2",
+          "name": "Google Sheets OAuth2 Account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "get",
+        "operation": "get",
+        "documentId": {
+          "__rl": true,
+          "value": "contract-analysis-sheet-id",
+          "mode": "id"
+        },
+        "sheetName": "Sheet1",
+        "options": {}
+      },
+      "id": "read-contract-analysis",
+      "name": "Read Contract Analysis",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [680, 1020],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "google-sheets-oauth2",
+          "name": "Google Sheets OAuth2 Account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "send",
+        "toEmail": "legal-team@yourfirm.com",
+        "subject": "={{ $json.subject || 'Internal Legal Memo' }}",
+        "message": "={{ $json.message || $json.content }}",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "id": "send-memo-email",
+      "name": "Send Memo Email",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2,
+      "position": [680, 1260],
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "gmail-oauth2",
+          "name": "Gmail OAuth2 Account"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Gmail Trigger - Legal Documents": {
+      "main": [
+        [
+          {
+            "node": "Upload to Google Drive",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upload to Google Drive": {
+      "main": [
+        [
+          {
+            "node": "Download from Google Drive",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Download from Google Drive": {
+      "main": [
+        [
+          {
+            "node": "Extract Text from PDF",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Text from PDF": {
+      "main": [
+        [
+          {
+            "node": "Analyze Legal Document",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Analyze Legal Document": {
+      "main": [
+        [
+          {
+            "node": "Save to Google Sheets - Documents",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Send Email - Document Summary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Drive Trigger - Contracts": {
+      "main": [
+        [
+          {
+            "node": "Download Contract",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Download Contract": {
+      "main": [
+        [
+          {
+            "node": "Extract Contract Text",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Contract Text": {
+      "main": [
+        [
+          {
+            "node": "Analyze Contract",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Analyze Contract": {
+      "main": [
+        [
+          {
+            "node": "Save Contract Analysis",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Send Contract Analysis Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Chat Trigger - Main AI Agent": {
+      "main": [
+        [
+          {
+            "node": "Main AI Agent - Legal Assistant",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Main AI Agent - Legal Assistant": {
+      "main": [
+        [
+          {
+            "node": "Read Document Summaries",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Read Contract Analysis",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Send Memo Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [
+    {
+      "createdAt": "2024-01-15T10:00:00.000Z",
+      "updatedAt": "2024-01-15T10:00:00.000Z",
+      "id": "legal-ai-system",
+      "name": "Legal AI System"
+    }
+  ],
+  "triggerCount": 3,
+  "updatedAt": "2024-01-15T10:00:00.000Z",
+  "versionId": "1"
+}

@@ -1,0 +1,51 @@
+{
+  "name": "legal-ai-system",
+  "version": "1.0.0",
+  "description": "Legal AI System for N8N workflow automation - Complete legal document processing, contract analysis, and AI assistant",
+  "main": "index.js",
+  "scripts": {
+    "setup-sheets": "node setup-google-sheets.js",
+    "setup-drive": "node setup-google-drive.js",
+    "setup-all": "npm run setup-sheets && npm run setup-drive",
+    "test": "node test-workflow.js",
+    "update-config": "node update-n8n-config.js",
+    "start": "echo 'Legal AI System setup complete. Import the workflow JSON into N8N to begin.'",
+    "dev": "nodemon test-workflow.js"
+  },
+  "dependencies": {
+    "google-spreadsheet": "^4.1.2",
+    "googleapis": "^128.0.0",
+    "google-auth-library": "^9.0.0",
+    "dotenv": "^16.3.1"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.2"
+  },
+  "keywords": [
+    "legal",
+    "ai",
+    "automation",
+    "n8n",
+    "google-sheets",
+    "google-drive",
+    "openai",
+    "legal-tech",
+    "document-processing",
+    "contract-analysis",
+    "legal-assistant"
+  ],
+  "author": "Legal AI System",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/your-username/legal-ai-system"
+  },
+  "bugs": {
+    "url": "https://github.com/your-username/legal-ai-system/issues"
+  },
+  "homepage": "https://github.com/your-username/legal-ai-system#readme",
+  "engines": {
+    "node": ">=16.0.0",
+    "npm": ">=8.0.0"
+  }
+}
