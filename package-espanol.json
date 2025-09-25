@@ -1,0 +1,54 @@
+{
+  "name": "sistema-ia-legal",
+  "version": "1.0.0",
+  "description": "Sistema de IA Legal para automatización de workflows N8N - Procesamiento completo de documentos legales, análisis de contratos y asistente de IA",
+  "main": "index.js",
+  "scripts": {
+    "configurar-hojas": "node configurar-google-sheets.js",
+    "configurar-drive": "node configurar-google-drive.js",
+    "configurar-todo": "npm run configurar-hojas && npm run configurar-drive",
+    "probar": "node probar-workflow.js",
+    "actualizar-config": "node actualizar-config-n8n.js",
+    "iniciar": "echo 'Configuración del Sistema de IA Legal completada. Importa el workflow JSON en N8N para comenzar.'",
+    "desarrollo": "nodemon probar-workflow.js"
+  },
+  "dependencies": {
+    "google-spreadsheet": "^4.1.2",
+    "googleapis": "^128.0.0",
+    "google-auth-library": "^9.0.0",
+    "dotenv": "^16.3.1"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.2"
+  },
+  "keywords": [
+    "legal",
+    "ia",
+    "automatización",
+    "n8n",
+    "google-sheets",
+    "google-drive",
+    "openai",
+    "legal-tech",
+    "procesamiento-documentos",
+    "análisis-contratos",
+    "asistente-legal",
+    "derecho",
+    "bufete-abogados",
+    "automatización-legal"
+  ],
+  "author": "Sistema de IA Legal",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/tu-usuario/sistema-ia-legal"
+  },
+  "bugs": {
+    "url": "https://github.com/tu-usuario/sistema-ia-legal/issues"
+  },
+  "homepage": "https://github.com/tu-usuario/sistema-ia-legal#readme",
+  "engines": {
+    "node": ">=16.0.0",
+    "npm": ">=8.0.0"
+  }
+}
