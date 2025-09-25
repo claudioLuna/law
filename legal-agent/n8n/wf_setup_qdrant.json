@@ -1,0 +1,285 @@
+{
+  "name": "Setup Qdrant Collection - Legal Agent",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "setup/qdrant",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-setup-qdrant",
+      "name": "Webhook Setup Qdrant",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [240, 300],
+      "webhookId": "setup-qdrant-webhook"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "condition-check-auth",
+              "leftValue": "={{ $json.headers.authorization }}",
+              "rightValue": "Bearer {{ $vars.SETUP_TOKEN || 'legal-agent-2024' }}",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-auth-check",
+      "name": "Verificar Autenticación",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "url": "={{ $vars.QDRANT_URL }}/collections/legal_chunks",
+        "authentication": "none",
+        "requestMethod": "DELETE",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "http-delete-collection",
+      "name": "Eliminar Colección Existente",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [680, 180]
+    },
+    {
+      "parameters": {
+        "url": "={{ $vars.QDRANT_URL }}/collections",
+        "authentication": "none",
+        "requestMethod": "PUT",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "collection_name",
+              "value": "legal_chunks"
+            },
+            {
+              "name": "vectors",
+              "value": "{\n  \"size\": 3072,\n  \"distance\": \"Cosine\"\n}"
+            },
+            {
+              "name": "payload_schema",
+              "value": "{\n  \"doc_id\": {\n    \"type\": \"keyword\",\n    \"description\": \"ID único del documento en PostgreSQL\"\n  },\n  \"case_id\": {\n    \"type\": \"keyword\",\n    \"description\": \"ID del caso asociado (opcional)\"\n  },\n  \"chunk_index\": {\n    \"type\": \"integer\",\n    \"description\": \"Índice del chunk dentro del documento\"\n  },\n  \"page\": {\n    \"type\": \"integer\",\n    \"description\": \"Número de página del chunk\"\n  },\n  \"fuente\": {\n    \"type\": \"keyword\",\n    \"description\": \"Fuente del documento (ej: jurisprudencia, doctrina, normativa)\"\n  },\n  \"documento\": {\n    \"type\": \"keyword\",\n    \"description\": \"Nombre/tipo del documento (ej: Código Civil, LCT, fallo CSJN)\"\n  },\n  \"jurisdiction\": {\n    \"type\": \"keyword\",\n    \"description\": \"Jurisdicción (ej: Mendoza, Nacional)\"\n  },\n  \"date\": {\n    \"type\": \"keyword\",\n    \"description\": \"Fecha del documento en formato YYYY-MM-DD\"\n  },\n  \"tags\": {\n    \"type\": \"keyword\",\n    \"description\": \"Tags adicionales separados por comas\"\n  },\n  \"tokens\": {\n    \"type\": \"integer\",\n    \"description\": \"Cantidad de tokens del chunk\"\n  },\n  \"created_at\": {\n    \"type\": \"keyword\",\n    \"description\": \"Timestamp de creación en formato ISO\"\n  }\n}"
+            },
+            {
+              "name": "hnsw_config",
+              "value": "{\n  \"m\": 16,\n  \"ef_construct\": 100,\n  \"full_scan_threshold\": 10000\n}"
+            },
+            {
+              "name": "optimizer_config",
+              "value": "{\n  \"default_segment_number\": 2,\n  \"max_segment_size\": 200000,\n  \"memmap_threshold\": 50000,\n  \"indexing_threshold\": 20000,\n  \"payload_indexing_threshold\": 20000\n}"
+            },
+            {
+              "name": "wal_config",
+              "value": "{\n  \"wal_capacity_mb\": 32,\n  \"wal_segments_ahead\": 0\n}"
+            },
+            {
+              "name": "replication_factor",
+              "value": "1"
+            },
+            {
+              "name": "write_consistency_factor",
+              "value": "1"
+            },
+            {
+              "name": "shard_number",
+              "value": "1"
+            },
+            {
+              "name": "on_disk_payload",
+              "value": "true"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "http-create-collection",
+      "name": "Crear Colección Qdrant",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [900, 180]
+    },
+    {
+      "parameters": {
+        "url": "={{ $vars.QDRANT_URL }}/collections/legal_chunks",
+        "authentication": "none",
+        "requestMethod": "GET",
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "id": "http-verify-collection",
+      "name": "Verificar Colección",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1120, 180]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "{\n  \"success\": true,\n  \"message\": \"Colección Qdrant configurada exitosamente\",\n  \"timestamp\": \"{{ $now }}\",\n  \"collection_name\": \"legal_chunks\",\n  \"vector_size\": 3072,\n  \"distance_metric\": \"Cosine\",\n  \"payload_schema\": {\n    \"doc_id\": \"keyword\",\n    \"case_id\": \"keyword\",\n    \"chunk_index\": \"integer\",\n    \"page\": \"integer\",\n    \"fuente\": \"keyword\",\n    \"documento\": \"keyword\",\n    \"jurisdiction\": \"keyword\",\n    \"date\": \"keyword\",\n    \"tags\": \"keyword\",\n    \"tokens\": \"integer\",\n    \"created_at\": \"keyword\"\n  },\n  \"collection_info\": {{ $json }}\n}",
+        "options": {}
+      },
+      "id": "response-success",
+      "name": "Respuesta Exitosa",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1340, 180]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "{\n  \"success\": false,\n  \"error\": \"No autorizado\",\n  \"message\": \"Token de autorización inválido o faltante\",\n  \"timestamp\": \"{{ $now }}\"\n}",
+        "responseCode": 401,
+        "options": {}
+      },
+      "id": "response-unauthorized",
+      "name": "Respuesta No Autorizada",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [680, 420]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "{\n  \"success\": false,\n  \"error\": \"Error configurando Qdrant\",\n  \"message\": \"No se pudo crear la colección legal_chunks\",\n  \"timestamp\": \"{{ $now }}\",\n  \"error_details\": {{ $json }}\n}",
+        "responseCode": 500,
+        "options": {}
+      },
+      "id": "response-error",
+      "name": "Respuesta Error",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1120, 420]
+    },
+    {
+      "parameters": {
+        "operation": "insert",
+        "schema": "public",
+        "table": "audit_logs",
+        "columns": "actor, action, entity, entity_id, diff, ip",
+        "additionalFields": {
+          "returnFields": "*"
+        }
+      },
+      "id": "audit-log-error",
+      "name": "Log Error en Auditoría",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [1340, 420],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-legal-agent",
+          "name": "PostgreSQL Legal Agent"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Webhook Setup Qdrant": {
+      "main": [
+        [
+          {
+            "node": "Verificar Autenticación",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Verificar Autenticación": {
+      "main": [
+        [
+          {
+            "node": "Eliminar Colección Existente",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respuesta No Autorizada",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Eliminar Colección Existente": {
+      "main": [
+        [
+          {
+            "node": "Crear Colección Qdrant",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Crear Colección Qdrant": {
+      "main": [
+        [
+          {
+            "node": "Verificar Colección",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Verificar Colección": {
+      "main": [
+        [
+          {
+            "node": "Respuesta Exitosa",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "errorWorkflow": {
+      "id": "error-handler-workflow"
+    }
+  },
+  "staticData": null,
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "pinData": {},
+  "versionId": "1",
+  "triggerCount": 1,
+  "tags": []
+}

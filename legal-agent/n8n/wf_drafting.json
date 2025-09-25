@@ -1,0 +1,494 @@
+{
+  "name": "Draft Documents - Legal Agent",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "draft",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-draft",
+      "name": "Webhook Draft",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [240, 400],
+      "webhookId": "draft-webhook"
+    },
+    {
+      "parameters": {
+        "functionCode": "// Validar y preparar entrada\nconst inputData = $input.first().json;\n\n// Validar parámetros requeridos\nif (!inputData.type) {\n  throw new Error('El parámetro type es requerido');\n}\n\nif (!inputData.variables) {\n  throw new Error('El parámetro variables es requerido');\n}\n\n// Validar tipos de documento permitidos\nconst allowedTypes = ['demanda_laboral', 'carta_documento', 'contrato_servicios', 'escrito_presentacion'];\nif (!allowedTypes.includes(inputData.type)) {\n  throw new Error(`Tipo de documento no válido. Permitidos: ${allowedTypes.join(', ')}`);\n}\n\n// Preparar datos de entrada\nconst documentType = inputData.type;\nconst caseId = inputData.case_id || null;\nconst variables = inputData.variables || {};\n\nreturn {\n  json: {\n    document_type: documentType,\n    case_id: caseId,\n    variables: variables,\n    start_time: Date.now()\n  }\n};"
+      },
+      "id": "function-validate-input",
+      "name": "Validar y Preparar Entrada",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [460, 400]
+    },
+    {
+      "parameters": {
+        "operation": "select",
+        "schema": "public",
+        "table": "templates",
+        "where": {
+          "conditions": [
+            {
+              "column": "type",
+              "operator": "equal",
+              "value": "={{ $json.document_type }}"
+            },
+            {
+              "column": "jurisdiction",
+              "operator": "equal",
+              "value": "Mendoza"
+            }
+          ]
+        },
+        "additionalFields": {
+          "returnFields": "*"
+        }
+      },
+      "id": "postgres-get-template",
+      "name": "Obtener Plantilla",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [680, 400],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-legal-agent",
+          "name": "PostgreSQL Legal Agent"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "condition-template-exists",
+              "leftValue": "={{ $json.length }}",
+              "rightValue": "0",
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-template-exists",
+      "name": "¿Plantilla Existe?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [900, 400]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "condition-has-case-id",
+              "leftValue": "={{ $('Validar y Preparar Entrada').first().json.case_id }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-has-case-context",
+      "name": "¿Tiene Contexto de Caso?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1120, 280]
+    },
+    {
+      "parameters": {
+        "url": "={{ $vars.BASE_URL || 'http://localhost:5678' }}/webhook/ask",
+        "authentication": "none",
+        "requestMethod": "POST",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "question",
+              "value": "Información relevante del caso para redacción de documento legal"
+            },
+            {
+              "name": "case_id",
+              "value": "={{ $('Validar y Preparar Entrada').first().json.case_id }}"
+            },
+            {
+              "name": "filters",
+              "value": "{\n  \"jurisdiction\": \"Mendoza\"\n}"
+            },
+            {
+              "name": "k",
+              "value": "5"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "http-get-case-context",
+      "name": "Obtener Contexto del Caso",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1340, 180]
+    },
+    {
+      "parameters": {
+        "functionCode": "// Combinar plantilla, variables y contexto\nconst templateData = $('Obtener Plantilla').first().json;\nconst inputData = $('Validar y Preparar Entrada').first().json;\nconst caseContext = $('Obtener Contexto del Caso').first().json;\n\n// Obtener plantilla\nconst template = templateData.body_md;\nconst promptVars = templateData.prompt_vars;\nconst variables = inputData.variables;\n\n// Reemplazar variables en la plantilla\nlet finalTemplate = template;\nfor (const [key, value] of Object.entries(variables)) {\n  const placeholder = `{{${key}}}`;\n  finalTemplate = finalTemplate.replace(new RegExp(placeholder, 'g'), value);\n}\n\n// Preparar contexto adicional del caso\nlet caseContextText = '';\nif (caseContext && caseContext.success && caseContext.answer_md) {\n  caseContextText = `\\n\\n## CONTEXTO ADICIONAL DEL CASO\\n\\n${caseContext.answer_md}\\n\\n**Citas:**\\n`;\n  if (caseContext.citations && caseContext.citations.length > 0) {\n    caseContext.citations.forEach(citation => {\n      caseContextText += `- ${citation.fuente}:${citation.documento}:${citation.page} (score=${citation.score})\\n`;\n    });\n  }\n}\n\n// Construir prompt para el LLM redactor\nconst systemPrompt = `Eres abogado redactor en Mendoza. Redacta escritos con formato procesal argentino.\nEstructura: Personería y Competencia; Hechos; Derecho (citas del contexto); Petitorio; Prueba; Reserva de Caso Federal (si aplica).\nCita {fuente}:{documento}:{pagina} sólo si está en el contexto.\nNo inventes datos; deja TODO: ... donde falte completar.\nDevuelve en Markdown bien formateado.`;\n\nconst userPrompt = `Redacta el siguiente documento legal usando la plantilla base y el contexto proporcionado:\\n\\n## PLANTILLA BASE\\n\\n${finalTemplate}\\n\\n${caseContextText}\\n\\n## VARIABLES PROPORCIONADAS\\n\\n${JSON.stringify(variables, null, 2)}`;\n\nreturn {\n  json: {\n    document_type: inputData.document_type,\n    case_id: inputData.case_id,\n    template: finalTemplate,\n    system_prompt: systemPrompt,\n    user_prompt: userPrompt,\n    case_context: caseContext,\n    start_time: inputData.start_time\n  }\n};"
+      },
+      "id": "function-combine-template-context",
+      "name": "Combinar Plantilla y Contexto",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [1560, 180]
+    },
+    {
+      "parameters": {
+        "functionCode": "// Combinar plantilla y variables sin contexto de caso\nconst templateData = $('Obtener Plantilla').first().json;\nconst inputData = $('Validar y Preparar Entrada').first().json;\n\n// Obtener plantilla\nconst template = templateData.body_md;\nconst variables = inputData.variables;\n\n// Reemplazar variables en la plantilla\nlet finalTemplate = template;\nfor (const [key, value] of Object.entries(variables)) {\n  const placeholder = `{{${key}}}`;\n  finalTemplate = finalTemplate.replace(new RegExp(placeholder, 'g'), value);\n}\n\n// Construir prompt para el LLM redactor\nconst systemPrompt = `Eres abogado redactor en Mendoza. Redacta escritos con formato procesal argentino.\nEstructura: Personería y Competencia; Hechos; Derecho (citas del contexto); Petitorio; Prueba; Reserva de Caso Federal (si aplica).\nCita {fuente}:{documento}:{pagina} sólo si está en el contexto.\nNo inventes datos; deja TODO: ... donde falte completar.\nDevuelve en Markdown bien formateado.`;\n\nconst userPrompt = `Redacta el siguiente documento legal usando la plantilla base:\\n\\n## PLANTILLA BASE\\n\\n${finalTemplate}\\n\\n## VARIABLES PROPORCIONADAS\\n\\n${JSON.stringify(variables, null, 2)}`;\n\nreturn {\n  json: {\n    document_type: inputData.document_type,\n    case_id: inputData.case_id,\n    template: finalTemplate,\n    system_prompt: systemPrompt,\n    user_prompt: userPrompt,\n    case_context: null,\n    start_time: inputData.start_time\n  }\n};"
+      },
+      "id": "function-combine-template-only",
+      "name": "Combinar Solo Plantilla",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [1340, 380]
+    },
+    {
+      "parameters": {
+        "url": "={{ $vars.OPENAI_API_BASE || 'https://api.openai.com' }}/v1/chat/completions",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "openAiApi",
+        "requestMethod": "POST",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "model",
+              "value": "={{ $vars.LLM_MODEL || 'gpt-4o' }}"
+            },
+            {
+              "name": "messages",
+              "value": "[\n  {\n    \"role\": \"system\",\n    \"content\": \"{{ $json.system_prompt }}\"\n  },\n  {\n    \"role\": \"user\",\n    \"content\": \"{{ $json.user_prompt }}\"\n  }\n]"
+            },
+            {
+              "name": "temperature",
+              "value": "0.2"
+            },
+            {
+              "name": "max_tokens",
+              "value": "4000"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 60000
+        }
+      },
+      "id": "openai-generate-document",
+      "name": "Generar Documento con LLM",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1780, 280],
+      "credentials": {
+        "openAiApi": {
+          "id": "openai-api-legal",
+          "name": "OpenAI API Legal Agent"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "insert",
+        "schema": "public",
+        "table": "documents",
+        "columns": "case_id, filename, mime, storage_url, pages, hash_sha256, source",
+        "additionalFields": {
+          "returnFields": "*"
+        }
+      },
+      "id": "postgres-save-document",
+      "name": "Guardar Documento Generado",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [2000, 280],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-legal-agent",
+          "name": "PostgreSQL Legal Agent"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "insert",
+        "schema": "public",
+        "table": "tasks",
+        "columns": "case_id, title, kind, due_at, assignee, status, origin",
+        "additionalFields": {
+          "returnFields": "*"
+        }
+      },
+      "id": "postgres-create-task",
+      "name": "Crear Tarea de Revisión",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [2220, 280],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-legal-agent",
+          "name": "PostgreSQL Legal Agent"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "{\n  \"success\": true,\n  \"message\": \"Documento generado exitosamente\",\n  \"timestamp\": \"{{ $now }}\",\n  \"document_type\": \"{{ $('Combinar Plantilla y Contexto').first().json.document_type }}\",\n  \"case_id\": \"{{ $('Combinar Plantilla y Contexto').first().json.case_id }}\",\n  \"document_md\": \"{{ $('Generar Documento con LLM').first().json.choices[0].message.content }}\",\n  \"document_id\": \"{{ $('Guardar Documento Generado').first().json.id }}\",\n  \"task_id\": \"{{ $('Crear Tarea de Revisión').first().json.id }}\",\n  \"latency_ms\": {{ $('Combinar Plantilla y Contexto').first().json.start_time ? Date.now() - $('Combinar Plantilla y Contexto').first().json.start_time : 0 }},\n  \"has_case_context\": {{ $('Combinar Plantilla y Contexto').first().json.case_context ? true : false }}\n}",
+        "options": {}
+      },
+      "id": "response-success",
+      "name": "Respuesta Exitosa",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [2440, 280]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "{\n  \"success\": false,\n  \"error\": \"Plantilla no encontrada\",\n  \"message\": \"No se encontró plantilla para el tipo de documento solicitado\",\n  \"timestamp\": \"{{ $now }}\",\n  \"requested_type\": \"{{ $('Validar y Preparar Entrada').first().json.document_type }}\",\n  \"available_types\": [\"demanda_laboral\", \"carta_documento\", \"contrato_servicios\", \"escrito_presentacion\"]\n}",
+        "responseCode": 404,
+        "options": {}
+      },
+      "id": "response-template-not-found",
+      "name": "Respuesta Plantilla No Encontrada",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1120, 520]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "{\n  \"success\": false,\n  \"error\": \"Error generando documento\",\n  \"message\": \"{{ $json.error || 'Error desconocido' }}\",\n  \"timestamp\": \"{{ $now }}\",\n  \"error_details\": {{ JSON.stringify($json) }}\n}",
+        "responseCode": 500,
+        "options": {}
+      },
+      "id": "response-error",
+      "name": "Respuesta Error",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1780, 520]
+    },
+    {
+      "parameters": {
+        "operation": "insert",
+        "schema": "public",
+        "table": "audit_logs",
+        "columns": "actor, action, entity, entity_id, diff, ip",
+        "additionalFields": {
+          "returnFields": "*"
+        }
+      },
+      "id": "audit-log-error",
+      "name": "Log Error en Auditoría",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [2000, 520],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-legal-agent",
+          "name": "PostgreSQL Legal Agent"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Webhook Draft": {
+      "main": [
+        [
+          {
+            "node": "Validar y Preparar Entrada",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validar y Preparar Entrada": {
+      "main": [
+        [
+          {
+            "node": "Obtener Plantilla",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Obtener Plantilla": {
+      "main": [
+        [
+          {
+            "node": "¿Plantilla Existe?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "¿Plantilla Existe?": {
+      "main": [
+        [
+          {
+            "node": "¿Tiene Contexto de Caso?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respuesta Plantilla No Encontrada",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "¿Tiene Contexto de Caso?": {
+      "main": [
+        [
+          {
+            "node": "Obtener Contexto del Caso",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Combinar Solo Plantilla",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Obtener Contexto del Caso": {
+      "main": [
+        [
+          {
+            "node": "Combinar Plantilla y Contexto",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Combinar Plantilla y Contexto": {
+      "main": [
+        [
+          {
+            "node": "Generar Documento con LLM",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Combinar Solo Plantilla": {
+      "main": [
+        [
+          {
+            "node": "Generar Documento con LLM",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generar Documento con LLM": {
+      "main": [
+        [
+          {
+            "node": "Guardar Documento Generado",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Guardar Documento Generado": {
+      "main": [
+        [
+          {
+            "node": "Crear Tarea de Revisión",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Crear Tarea de Revisión": {
+      "main": [
+        [
+          {
+            "node": "Respuesta Exitosa",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "errorWorkflow": {
+      "id": "error-handler-workflow"
+    }
+  },
+  "staticData": null,
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "pinData": {},
+  "versionId": "1",
+  "triggerCount": 1,
+  "tags": []
+}

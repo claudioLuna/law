@@ -1,0 +1,73 @@
+{
+  "collection_name": "legal_chunks",
+  "vectors": {
+    "size": 3072,
+    "distance": "Cosine"
+  },
+  "payload_schema": {
+    "doc_id": {
+      "type": "keyword",
+      "description": "ID único del documento en PostgreSQL"
+    },
+    "case_id": {
+      "type": "keyword", 
+      "description": "ID del caso asociado (opcional)"
+    },
+    "chunk_index": {
+      "type": "integer",
+      "description": "Índice del chunk dentro del documento"
+    },
+    "page": {
+      "type": "integer",
+      "description": "Número de página del chunk"
+    },
+    "fuente": {
+      "type": "keyword",
+      "description": "Fuente del documento (ej: 'jurisprudencia', 'doctrina', 'normativa')"
+    },
+    "documento": {
+      "type": "keyword",
+      "description": "Nombre/tipo del documento (ej: 'Código Civil', 'LCT', 'fallo CSJN')"
+    },
+    "jurisdiction": {
+      "type": "keyword",
+      "description": "Jurisdicción (ej: 'Mendoza', 'Nacional')"
+    },
+    "date": {
+      "type": "keyword",
+      "description": "Fecha del documento en formato YYYY-MM-DD"
+    },
+    "tags": {
+      "type": "keyword",
+      "description": "Tags adicionales separados por comas"
+    },
+    "tokens": {
+      "type": "integer",
+      "description": "Cantidad de tokens del chunk"
+    },
+    "created_at": {
+      "type": "keyword",
+      "description": "Timestamp de creación en formato ISO"
+    }
+  },
+  "hnsw_config": {
+    "m": 16,
+    "ef_construct": 100,
+    "full_scan_threshold": 10000
+  },
+  "optimizer_config": {
+    "default_segment_number": 2,
+    "max_segment_size": 200000,
+    "memmap_threshold": 50000,
+    "indexing_threshold": 20000,
+    "payload_indexing_threshold": 20000
+  },
+  "wal_config": {
+    "wal_capacity_mb": 32,
+    "wal_segments_ahead": 0
+  },
+  "replication_factor": 1,
+  "write_consistency_factor": 1,
+  "shard_number": 1,
+  "on_disk_payload": true
+}
