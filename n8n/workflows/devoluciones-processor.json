@@ -1,0 +1,181 @@
+{
+  "name": "Devoluciones Processor - Kapso Integration",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "devoluciones-processor",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-trigger-dev",
+      "name": "Webhook Trigger Devoluciones",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [240, 300],
+      "webhookId": "devoluciones-processor"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Procesar solicitud de devolución\nconst payload = $input.first().json;\nconst devolucionData = payload.data;\n\n// Generar ID único\nconst devolucionId = `DEV-${Date.now()}-${Math.random().toString(36).substr(2, 5).toUpperCase()}`;\n\n// Validar política de devoluciones (30 días)\nconst fechaCompra = new Date(devolucionData.fecha_compra || Date.now());\nconst fechaActual = new Date();\nconst diasTranscurridos = Math.floor((fechaActual - fechaCompra) / (1000 * 60 * 60 * 24));\n\nconst esElegible = diasTranscurridos <= 30;\n\n// Preparar datos para DB\nconst dbData = {\n  devolucion_id: devolucionId,\n  nombre: devolucionData.nombre,\n  email: devolucionData.email,\n  numero_orden: devolucionData.numero_orden,\n  producto: devolucionData.producto,\n  motivo: devolucionData.motivo,\n  estado_producto: devolucionData.estado_producto,\n  elegible: esElegible,\n  dias_transcurridos: diasTranscurridos,\n  status: esElegible ? 'pendiente_revision' : 'rechazada',\n  created_at: new Date().toISOString()\n};\n\nreturn [{\n  json: {\n    devolucionId,\n    esElegible,\n    diasTranscurridos,\n    dbData,\n    originalPayload: payload\n  }\n}];"
+      },
+      "id": "devolucion-processor",
+      "name": "Devolución Processor",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "resource": "database",
+        "operation": "insert",
+        "tableId": "devoluciones",
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "devolucion_id",
+              "fieldValue": "={{ $json.dbData.devolucion_id }}"
+            },
+            {
+              "fieldId": "nombre",
+              "fieldValue": "={{ $json.dbData.nombre }}"
+            },
+            {
+              "fieldId": "email",
+              "fieldValue": "={{ $json.dbData.email }}"
+            },
+            {
+              "fieldId": "numero_orden",
+              "fieldValue": "={{ $json.dbData.numero_orden }}"
+            },
+            {
+              "fieldId": "producto",
+              "fieldValue": "={{ $json.dbData.producto }}"
+            },
+            {
+              "fieldId": "motivo",
+              "fieldValue": "={{ $json.dbData.motivo }}"
+            },
+            {
+              "fieldId": "estado_producto",
+              "fieldValue": "={{ $json.dbData.estado_producto }}"
+            },
+            {
+              "fieldId": "elegible",
+              "fieldValue": "={{ $json.dbData.elegible }}"
+            },
+            {
+              "fieldId": "status",
+              "fieldValue": "={{ $json.dbData.status }}"
+            }
+          ]
+        }
+      },
+      "id": "supabase-insert-dev",
+      "name": "Supabase Insert Devolución",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [680, 300],
+      "credentials": {
+        "supabaseApi": {
+          "id": "supabase-credentials",
+          "name": "Supabase Credentials"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Preparar respuesta para Kapso\nconst data = $input.first().json;\n\nconst response = {\n  success: true,\n  devolucion_id: data.devolucionId,\n  elegible: data.esElegible,\n  message: data.esElegible ? \n    'Solicitud de devolución aprobada. Recibirás instrucciones por email.' :\n    `Solicitud no elegible. Han transcurrido ${data.diasTranscurridos} días (máximo 30).`,\n  next_steps: data.esElegible ? [\n    'Recibirás un email con la etiqueta de envío',\n    'Empaca el producto en su caja original', \n    'Adjunta el comprobante de compra'\n  ] : [\n    'Contacta a soporte para casos especiales',\n    'Revisa nuestra política de devoluciones'\n  ],\n  timestamp: new Date().toISOString()\n};\n\nreturn [{ json: response }];"
+      },
+      "id": "response-formatter-dev",
+      "name": "Response Formatter Devolución",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [900, 300]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($json) }}",
+        "options": {
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Content-Type",
+                "value": "application/json"
+              }
+            ]
+          }
+        }
+      },
+      "id": "webhook-response-dev",
+      "name": "Webhook Response Devolución",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1120, 300]
+    }
+  ],
+  "connections": {
+    "Webhook Trigger Devoluciones": {
+      "main": [
+        [
+          {
+            "node": "Devolución Processor",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Devolución Processor": {
+      "main": [
+        [
+          {
+            "node": "Supabase Insert Devolución",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Supabase Insert Devolución": {
+      "main": [
+        [
+          {
+            "node": "Response Formatter Devolución",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Response Formatter Devolución": {
+      "main": [
+        [
+          {
+            "node": "Webhook Response Devolución",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [
+    {
+      "id": "kapso-integration",
+      "name": "Kapso Integration"
+    },
+    {
+      "id": "devoluciones",
+      "name": "Devoluciones"
+    }
+  ],
+  "triggerCount": 1,
+  "versionId": "1"
+}
