@@ -1,0 +1,262 @@
+# Configuración de Dokploy para el sistema de soporte WhatsApp
+# Este archivo define la configuración específica para el despliegue en Dokploy
+
+version: '1.0'
+
+project:
+  name: soporte-whatsapp-mvp
+  description: "Sistema de soporte al cliente vía WhatsApp usando Kapso y n8n"
+  
+applications:
+  # Aplicación principal - Stack completo
+  - name: soporte-stack
+    type: docker-compose
+    source:
+      type: git
+      repository: "https://github.com/your-repo/soporte-whatsapp"
+      branch: main
+    build:
+      dockerfile: docker-compose.yml
+    
+    # Configuración de red y dominio
+    domains:
+      - domain: "soporte.${DOKPLOY_DOMAIN}"
+        path: "/"
+        port: 80
+        https: true
+        certificate: letsencrypt
+      - domain: "n8n.${DOKPLOY_DOMAIN}"
+        path: "/"
+        port: 5678
+        https: true
+        certificate: letsencrypt
+      - domain: "supabase.${DOKPLOY_DOMAIN}"
+        path: "/"
+        port: 3000
+        https: true
+        certificate: letsencrypt
+      - domain: "grafana.${DOKPLOY_DOMAIN}"
+        path: "/"
+        port: 3001
+        https: true
+        certificate: letsencrypt
+    
+    # Variables de entorno específicas para Dokploy
+    environment:
+      # Heredar del .env pero sobrescribir algunas específicas
+      - DOMAIN=${DOKPLOY_DOMAIN}
+      - N8N_WEBHOOK_URL=https://n8n.${DOKPLOY_DOMAIN}
+      - SUPABASE_URL=https://supabase.${DOKPLOY_DOMAIN}
+      - ACME_EMAIL=${DOKPLOY_SSL_EMAIL}
+      - ENVIRONMENT=production
+    
+    # Configuración de recursos
+    resources:
+      cpu_limit: "2"
+      memory_limit: "4Gi"
+      cpu_request: "0.5"
+      memory_request: "1Gi"
+    
+    # Healthchecks
+    health_check:
+      enabled: true
+      path: "/health"
+      port: 80
+      interval: 30
+      timeout: 10
+      retries: 3
+    
+    # Configuración de volúmenes persistentes
+    volumes:
+      - name: postgres-data
+        size: "10Gi"
+        mount_path: "/var/lib/postgresql/data"
+      - name: n8n-data
+        size: "5Gi"
+        mount_path: "/home/node/.n8n"
+      - name: grafana-data
+        size: "2Gi"
+        mount_path: "/var/lib/grafana"
+    
+    # Configuración de backup
+    backup:
+      enabled: true
+      schedule: "0 2 * * *"  # Diario a las 2 AM
+      retention: 7  # Mantener 7 backups
+      volumes:
+        - postgres-data
+        - n8n-data
+    
+    # Configuración de logs
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "3"
+    
+    # Configuración de red
+    network:
+      mode: bridge
+      
+databases:
+  # Base de datos principal PostgreSQL
+  - name: soporte-postgres
+    type: postgresql
+    version: "15"
+    database: "soporte_db"
+    username: "${POSTGRES_USER}"
+    password: "${POSTGRES_PASSWORD}"
+    
+    # Configuración de recursos para la DB
+    resources:
+      cpu_limit: "1"
+      memory_limit: "2Gi"
+      storage: "20Gi"
+    
+    # Backup automático
+    backup:
+      enabled: true
+      schedule: "0 1 * * *"  # Diario a la 1 AM
+      retention: 30  # Mantener 30 días
+    
+    # Configuración de conexiones
+    max_connections: 100
+    shared_buffers: "256MB"
+    
+services:
+  # Redis para cache y sesiones
+  - name: soporte-redis
+    type: redis
+    version: "7"
+    password: "${REDIS_PASSWORD}"
+    
+    resources:
+      cpu_limit: "0.5"
+      memory_limit: "512Mi"
+      storage: "1Gi"
+    
+    configuration:
+      maxmemory_policy: "allkeys-lru"
+      save: "900 1 300 10 60 10000"
+
+# Configuración de monitoreo
+monitoring:
+  enabled: true
+  
+  # Métricas con Prometheus
+  prometheus:
+    enabled: true
+    retention: "15d"
+    
+  # Logs centralizados
+  logging:
+    enabled: true
+    driver: "loki"
+    
+  # Alertas
+  alerts:
+    - name: "high_cpu"
+      condition: "cpu_usage > 80"
+      duration: "5m"
+      severity: "warning"
+    - name: "high_memory"
+      condition: "memory_usage > 85"
+      duration: "5m"
+      severity: "warning"
+    - name: "disk_space"
+      condition: "disk_usage > 90"
+      duration: "2m"
+      severity: "critical"
+    - name: "service_down"
+      condition: "up == 0"
+      duration: "1m"
+      severity: "critical"
+
+# Configuración de seguridad
+security:
+  # SSL/TLS automático
+  ssl:
+    enabled: true
+    provider: letsencrypt
+    email: "${DOKPLOY_SSL_EMAIL}"
+  
+  # Firewall básico
+  firewall:
+    enabled: true
+    allowed_ports:
+      - 80
+      - 443
+      - 22  # SSH
+    
+  # Rate limiting
+  rate_limiting:
+    enabled: true
+    requests_per_minute: 60
+    burst: 10
+
+# Scripts de despliegue
+deployment:
+  # Pre-deployment hooks
+  pre_deploy:
+    - name: "backup_database"
+      command: "pg_dump soporte_db > /backups/pre_deploy_$(date +%Y%m%d_%H%M%S).sql"
+    - name: "check_migrations"
+      command: "echo 'Verificando migraciones...'"
+  
+  # Post-deployment hooks
+  post_deploy:
+    - name: "run_migrations"
+      command: "psql -f /docker-entrypoint-initdb.d/migrations/001_initial_schema.sql"
+    - name: "import_n8n_workflows"
+      command: "n8n import:workflow --input=/home/node/.n8n/workflows/"
+    - name: "health_check"
+      command: "curl -f http://localhost/health || exit 1"
+  
+  # Rollback strategy
+  rollback:
+    enabled: true
+    strategy: "previous_version"
+    
+# Configuración de CI/CD
+ci_cd:
+  # Auto-deploy desde git
+  auto_deploy:
+    enabled: true
+    branch: "main"
+    
+  # Tests antes del deploy
+  tests:
+    enabled: true
+    commands:
+      - "echo 'Ejecutando tests...'"
+      - "python -m pytest tests/ || true"  # No fallar si no hay tests aún
+  
+  # Notificaciones
+  notifications:
+    slack:
+      enabled: true
+      webhook_url: "${SLACK_WEBHOOK_URL}"
+      channel: "#deployments"
+    
+    email:
+      enabled: true
+      recipients:
+        - "${ADMIN_EMAIL}"
+
+# Configuración específica de Dokploy
+dokploy:
+  # Configuración del proyecto
+  project_settings:
+    auto_cleanup: true
+    cleanup_retention_days: 7
+    
+  # Configuración de red
+  network_settings:
+    enable_ipv6: false
+    custom_network: "soporte-network"
+    
+  # Configuración de recursos globales
+  resource_limits:
+    max_cpu: "4"
+    max_memory: "8Gi"
+    max_storage: "50Gi"

@@ -1,0 +1,286 @@
+{
+  "name": "Reclamos Processor - Kapso Integration",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "reclamos-processor",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-trigger",
+      "name": "Webhook Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [240, 300],
+      "webhookId": "reclamos-processor"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Procesar datos recibidos de Kapso\nconst payload = $input.first().json;\n\n// Extraer datos del reclamo\nconst reclamoData = payload.reclamo_data;\n\n// Generar ID único para el ticket\nconst ticketId = `REC-${Date.now()}-${Math.random().toString(36).substr(2, 5).toUpperCase()}`;\n\n// Preparar datos para Supabase\nconst dbData = {\n  ticket_id: ticketId,\n  nombre: reclamoData.nombre,\n  email: reclamoData.email,\n  producto: reclamoData.producto,\n  motivo: reclamoData.motivo,\n  descripcion: reclamoData.descripcion,\n  conversation_id: reclamoData.conversation_id,\n  user_phone: reclamoData.user_phone,\n  status: 'nuevo',\n  priority: 'media',\n  created_at: new Date().toISOString(),\n  source: 'whatsapp_kapso'\n};\n\n// Preparar datos para Jira\nconst jiraData = {\n  fields: {\n    project: { key: 'SUP' },\n    summary: `Reclamo WhatsApp: ${reclamoData.producto}`,\n    description: {\n      type: 'doc',\n      version: 1,\n      content: [\n        {\n          type: 'paragraph',\n          content: [\n            { type: 'text', text: `Cliente: ${reclamoData.nombre}` }\n          ]\n        },\n        {\n          type: 'paragraph', \n          content: [\n            { type: 'text', text: `Email: ${reclamoData.email}` }\n          ]\n        },\n        {\n          type: 'paragraph',\n          content: [\n            { type: 'text', text: `Producto: ${reclamoData.producto}` }\n          ]\n        },\n        {\n          type: 'paragraph',\n          content: [\n            { type: 'text', text: `Motivo: ${reclamoData.motivo}` }\n          ]\n        },\n        {\n          type: 'paragraph',\n          content: [\n            { type: 'text', text: `Descripción: ${reclamoData.descripcion}` }\n          ]\n        }\n      ]\n    },\n    issuetype: { name: 'Bug' },\n    priority: { name: 'Medium' },\n    labels: ['whatsapp', 'reclamo', 'kapso']\n  }\n};\n\n// Preparar notificación para Slack\nconst slackData = {\n  text: `🚨 Nuevo Reclamo WhatsApp`,\n  blocks: [\n    {\n      type: 'header',\n      text: {\n        type: 'plain_text',\n        text: '🚨 Nuevo Reclamo WhatsApp'\n      }\n    },\n    {\n      type: 'section',\n      fields: [\n        {\n          type: 'mrkdwn',\n          text: `*Ticket ID:*\\n${ticketId}`\n        },\n        {\n          type: 'mrkdwn', \n          text: `*Cliente:*\\n${reclamoData.nombre}`\n        },\n        {\n          type: 'mrkdwn',\n          text: `*Email:*\\n${reclamoData.email}`\n        },\n        {\n          type: 'mrkdwn',\n          text: `*Producto:*\\n${reclamoData.producto}`\n        }\n      ]\n    },\n    {\n      type: 'section',\n      text: {\n        type: 'mrkdwn',\n        text: `*Motivo:* ${reclamoData.motivo}\\n*Descripción:* ${reclamoData.descripcion}`\n      }\n    }\n  ]\n};\n\nreturn [\n  {\n    json: {\n      ticketId,\n      originalPayload: payload,\n      dbData,\n      jiraData,\n      slackData\n    }\n  }\n];"
+      },
+      "id": "data-processor",
+      "name": "Data Processor",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "resource": "database",
+        "operation": "insert",
+        "tableId": "reclamos",
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "ticket_id",
+              "fieldValue": "={{ $json.dbData.ticket_id }}"
+            },
+            {
+              "fieldId": "nombre", 
+              "fieldValue": "={{ $json.dbData.nombre }}"
+            },
+            {
+              "fieldId": "email",
+              "fieldValue": "={{ $json.dbData.email }}"
+            },
+            {
+              "fieldId": "producto",
+              "fieldValue": "={{ $json.dbData.producto }}"
+            },
+            {
+              "fieldId": "motivo",
+              "fieldValue": "={{ $json.dbData.motivo }}"
+            },
+            {
+              "fieldId": "descripcion",
+              "fieldValue": "={{ $json.dbData.descripcion }}"
+            },
+            {
+              "fieldId": "conversation_id",
+              "fieldValue": "={{ $json.dbData.conversation_id }}"
+            },
+            {
+              "fieldId": "user_phone",
+              "fieldValue": "={{ $json.dbData.user_phone }}"
+            },
+            {
+              "fieldId": "status",
+              "fieldValue": "={{ $json.dbData.status }}"
+            },
+            {
+              "fieldId": "priority",
+              "fieldValue": "={{ $json.dbData.priority }}"
+            },
+            {
+              "fieldId": "source",
+              "fieldValue": "={{ $json.dbData.source }}"
+            }
+          ]
+        }
+      },
+      "id": "supabase-insert",
+      "name": "Supabase Insert",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [680, 180],
+      "credentials": {
+        "supabaseApi": {
+          "id": "supabase-credentials",
+          "name": "Supabase Credentials"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "issue",
+        "operation": "create",
+        "jsonParameters": true,
+        "bodyJson": "={{ JSON.stringify($json.jiraData) }}"
+      },
+      "id": "jira-create-ticket",
+      "name": "Jira Create Ticket", 
+      "type": "n8n-nodes-base.jira",
+      "typeVersion": 1,
+      "position": [680, 300],
+      "credentials": {
+        "jiraCloudApi": {
+          "id": "jira-credentials",
+          "name": "Jira Credentials"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.SLACK_WEBHOOK_URL }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": []
+        },
+        "jsonBody": "={{ JSON.stringify($json.slackData) }}"
+      },
+      "id": "slack-notification",
+      "name": "Slack Notification",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [680, 420]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Preparar respuesta para Kapso\nconst ticketId = $('data-processor').first().json.ticketId;\nconst jiraResponse = $('jira-create-ticket').first().json;\n\n// Extraer el ID del ticket de Jira si existe\nconst jiraTicketId = jiraResponse?.key || null;\n\n// Respuesta exitosa para Kapso\nconst kapsoResponse = {\n  success: true,\n  reclamo_id: ticketId,\n  jira_ticket: jiraTicketId,\n  message: 'Reclamo procesado exitosamente',\n  timestamp: new Date().toISOString()\n};\n\nreturn [{ json: kapsoResponse }];"
+      },
+      "id": "response-formatter",
+      "name": "Response Formatter",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [900, 300]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($json) }}",
+        "options": {
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Content-Type",
+                "value": "application/json"
+              }
+            ]
+          }
+        }
+      },
+      "id": "webhook-response",
+      "name": "Webhook Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1120, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Nodo de debugging para logs\nconst input = $input.first().json;\n\nconsole.log('=== RECLAMO PROCESSOR DEBUG ===');\nconsole.log('Timestamp:', new Date().toISOString());\nconsole.log('Input Data:', JSON.stringify(input, null, 2));\nconsole.log('Ticket ID Generated:', input.ticketId);\nconsole.log('================================');\n\n// Pasar datos sin modificar\nreturn [{ json: input }];"
+      },
+      "id": "debug-logger",
+      "name": "Debug Logger",
+      "type": "n8n-nodes-base.code", 
+      "typeVersion": 2,
+      "position": [460, 480],
+      "disabled": false
+    }
+  ],
+  "connections": {
+    "Webhook Trigger": {
+      "main": [
+        [
+          {
+            "node": "Data Processor",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Data Processor": {
+      "main": [
+        [
+          {
+            "node": "Supabase Insert",
+            "type": "main", 
+            "index": 0
+          },
+          {
+            "node": "Jira Create Ticket",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Slack Notification",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Debug Logger",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Supabase Insert": {
+      "main": [
+        [
+          {
+            "node": "Response Formatter",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Jira Create Ticket": {
+      "main": [
+        [
+          {
+            "node": "Response Formatter",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Slack Notification": {
+      "main": [
+        [
+          {
+            "node": "Response Formatter",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Response Formatter": {
+      "main": [
+        [
+          {
+            "node": "Webhook Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [
+    {
+      "createdAt": "2025-01-01T00:00:00.000Z",
+      "updatedAt": "2025-01-01T00:00:00.000Z", 
+      "id": "kapso-integration",
+      "name": "Kapso Integration"
+    },
+    {
+      "createdAt": "2025-01-01T00:00:00.000Z",
+      "updatedAt": "2025-01-01T00:00:00.000Z",
+      "id": "whatsapp-support",
+      "name": "WhatsApp Support"
+    }
+  ],
+  "triggerCount": 1,
+  "updatedAt": "2025-01-01T00:00:00.000Z",
+  "versionId": "1"
+}

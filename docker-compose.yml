@@ -1,0 +1,252 @@
+version: '3.8'
+
+services:
+  # n8n - Motor de automatización y workflows
+  n8n:
+    image: n8nio/n8n:latest
+    container_name: soporte-n8n
+    restart: unless-stopped
+    environment:
+      - DB_TYPE=postgresdb
+      - DB_POSTGRESDB_HOST=postgres
+      - DB_POSTGRESDB_PORT=5432
+      - DB_POSTGRESDB_DATABASE=${POSTGRES_DB:-n8n}
+      - DB_POSTGRESDB_USER=${POSTGRES_USER:-n8n}
+      - DB_POSTGRESDB_PASSWORD=${POSTGRES_PASSWORD:-n8n_password}
+      - N8N_BASIC_AUTH_ACTIVE=true
+      - N8N_BASIC_AUTH_USER=${N8N_BASIC_AUTH_USER:-admin}
+      - N8N_BASIC_AUTH_PASSWORD=${N8N_BASIC_AUTH_PASSWORD:-admin123}
+      - WEBHOOK_URL=${N8N_WEBHOOK_URL:-https://your-n8n-instance.com}
+      - N8N_HOST=${N8N_HOST:-0.0.0.0}
+      - N8N_PORT=5678
+      - N8N_PROTOCOL=${N8N_PROTOCOL:-https}
+      - NODE_ENV=production
+      - EXECUTIONS_PROCESS=main
+      - N8N_METRICS=true
+      - N8N_LOG_LEVEL=info
+    ports:
+      - "5678:5678"
+    volumes:
+      - n8n_data:/home/node/.n8n
+      - ./n8n/workflows:/home/node/.n8n/workflows:ro
+    depends_on:
+      - postgres
+    networks:
+      - soporte-network
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.n8n.rule=Host(`n8n.${DOMAIN:-localhost}`)"
+      - "traefik.http.routers.n8n.tls=true"
+      - "traefik.http.routers.n8n.tls.certresolver=letsencrypt"
+
+  # PostgreSQL - Base de datos principal
+  postgres:
+    image: postgres:15-alpine
+    container_name: soporte-postgres
+    restart: unless-stopped
+    environment:
+      - POSTGRES_DB=${POSTGRES_DB:-n8n}
+      - POSTGRES_USER=${POSTGRES_USER:-n8n}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-n8n_password}
+      - POSTGRES_MULTIPLE_DATABASES=supabase_db,metrics_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./supabase/migrations:/docker-entrypoint-initdb.d/migrations:ro
+      - ./supabase/seed.sql:/docker-entrypoint-initdb.d/seed.sql:ro
+      - ./supabase/config.sql:/docker-entrypoint-initdb.d/config.sql:ro
+    networks:
+      - soporte-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-n8n}"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  # Supabase (Self-hosted) - API y Auth
+  supabase:
+    image: supabase/supabase:latest
+    container_name: soporte-supabase
+    restart: unless-stopped
+    environment:
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_DB=supabase_db
+      - POSTGRES_USER=${POSTGRES_USER:-n8n}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-n8n_password}
+      - JWT_SECRET=${JWT_SECRET:-your-super-secret-jwt-token-with-at-least-32-characters-long}
+      - ANON_KEY=${SUPABASE_ANON_KEY:-your-anon-key}
+      - SERVICE_ROLE_KEY=${SUPABASE_SERVICE_KEY:-your-service-role-key}
+      - API_EXTERNAL_URL=${SUPABASE_URL:-https://supabase.localhost}
+      - GOTRUE_EXTERNAL_EMAIL_ENABLED=true
+      - GOTRUE_MAILER_AUTOCONFIRM=true
+      - GOTRUE_SMTP_HOST=${SMTP_HOST:-smtp.gmail.com}
+      - GOTRUE_SMTP_PORT=${SMTP_PORT:-587}
+      - GOTRUE_SMTP_USER=${SMTP_USER:-}
+      - GOTRUE_SMTP_PASS=${SMTP_PASS:-}
+    ports:
+      - "3000:3000"  # Supabase API
+      - "9999:9999"  # Supabase Dashboard
+    depends_on:
+      - postgres
+    networks:
+      - soporte-network
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.supabase.rule=Host(`supabase.${DOMAIN:-localhost}`)"
+      - "traefik.http.routers.supabase.tls=true"
+
+  # Kapso Application - Flujos de conversación
+  kapso-app:
+    build:
+      context: ./kapso
+      dockerfile: Dockerfile
+    container_name: soporte-kapso
+    restart: unless-stopped
+    environment:
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - KAPSO_API_KEY=${KAPSO_API_KEY}
+      - N8N_WEBHOOK_URL=${N8N_WEBHOOK_URL:-http://n8n:5678/webhook}
+      - SUPABASE_URL=${SUPABASE_URL:-http://supabase:3000}
+      - SUPABASE_KEY=${SUPABASE_SERVICE_KEY}
+      - WHATSAPP_WEBHOOK_TOKEN=${WHATSAPP_WEBHOOK_TOKEN}
+      - ENVIRONMENT=production
+      - LOG_LEVEL=info
+    ports:
+      - "8000:8000"
+    depends_on:
+      - n8n
+      - supabase
+    networks:
+      - soporte-network
+    volumes:
+      - kapso_logs:/app/logs
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.kapso.rule=Host(`kapso.${DOMAIN:-localhost}`)"
+      - "traefik.http.routers.kapso.tls=true"
+
+  # Redis - Cache y sesiones
+  redis:
+    image: redis:7-alpine
+    container_name: soporte-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - soporte-network
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:-redis_password}
+
+  # Traefik - Reverse Proxy y SSL
+  traefik:
+    image: traefik:v3.0
+    container_name: soporte-traefik
+    restart: unless-stopped
+    command:
+      - "--api.dashboard=true"
+      - "--providers.docker=true"
+      - "--providers.docker.exposedbydefault=false"
+      - "--entrypoints.web.address=:80"
+      - "--entrypoints.websecure.address=:443"
+      - "--certificatesresolvers.letsencrypt.acme.tlschallenge=true"
+      - "--certificatesresolvers.letsencrypt.acme.email=${ACME_EMAIL:-admin@localhost}"
+      - "--certificatesresolvers.letsencrypt.acme.storage=/letsencrypt/acme.json"
+      - "--log.level=INFO"
+      - "--metrics.prometheus=true"
+    ports:
+      - "80:80"
+      - "443:443"
+      - "8080:8080"  # Dashboard
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - traefik_data:/letsencrypt
+    networks:
+      - soporte-network
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.traefik.rule=Host(`traefik.${DOMAIN:-localhost}`)"
+      - "traefik.http.routers.traefik.tls=true"
+      - "traefik.http.routers.traefik.service=api@internal"
+
+  # Prometheus - Monitoreo y métricas
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: soporte-prometheus
+    restart: unless-stopped
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    networks:
+      - soporte-network
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--web.enable-lifecycle'
+
+  # Grafana - Dashboard y visualización
+  grafana:
+    image: grafana/grafana:latest
+    container_name: soporte-grafana
+    restart: unless-stopped
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:-admin123}
+      - GF_INSTALL_PLUGINS=grafana-piechart-panel
+    ports:
+      - "3001:3000"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+    networks:
+      - soporte-network
+    depends_on:
+      - prometheus
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.grafana.rule=Host(`grafana.${DOMAIN:-localhost}`)"
+      - "traefik.http.routers.grafana.tls=true"
+
+  # Webhook Tester - Para desarrollo y debugging
+  webhook-tester:
+    image: tarampampam/webhook-tester:latest
+    container_name: soporte-webhook-tester
+    restart: unless-stopped
+    ports:
+      - "8090:8080"
+    networks:
+      - soporte-network
+    profiles:
+      - dev
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.webhook-tester.rule=Host(`webhooks.${DOMAIN:-localhost}`)"
+
+volumes:
+  postgres_data:
+    driver: local
+  n8n_data:
+    driver: local
+  redis_data:
+    driver: local
+  kapso_logs:
+    driver: local
+  traefik_data:
+    driver: local
+  prometheus_data:
+    driver: local
+  grafana_data:
+    driver: local
+
+networks:
+  soporte-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
