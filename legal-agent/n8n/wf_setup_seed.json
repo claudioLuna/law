@@ -1,0 +1,231 @@
+{
+  "name": "Setup Seed Templates - Legal Agent",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "setup/seed",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-setup-seed",
+      "name": "Webhook Setup Seed",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [240, 300],
+      "webhookId": "setup-seed-webhook"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "condition-check-auth",
+              "leftValue": "={{ $json.headers.authorization }}",
+              "rightValue": "Bearer {{ $vars.SETUP_TOKEN || 'legal-agent-2024' }}",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-auth-check",
+      "name": "Verificar Autenticación",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- Limpiar plantillas existentes\nDELETE FROM templates WHERE jurisdiction = 'Mendoza';\n\n-- =============================================================================\n-- PLANTILLA: DEMANDA LABORAL\n-- =============================================================================\nINSERT INTO templates (id, type, jurisdiction, version, prompt_vars, body_md) VALUES (\n    uuid_generate_v4(),\n    'demanda_laboral',\n    'Mendoza',\n    1,\n    '{\n        \"actor_nombre\": \"string\",\n        \"actor_dni\": \"string\", \n        \"demandado_nombre\": \"string\",\n        \"demandado_cuit\": \"string\",\n        \"materia\": \"string\",\n        \"juzgado\": \"string\",\n        \"monto_estimado\": \"string\",\n        \"hechos_detallados\": \"string\",\n        \"prueba_documental\": \"string\",\n        \"testigos\": \"string\",\n        \"oficios\": \"string\",\n        \"autorizados\": \"string\"\n    }',\n    '# DEMANDA LABORAL\\n\\n**{{actor_nombre}}**\\nDNI: {{actor_dni}}\\nDomicilio: TODO: COMPLETAR\\nTeléfono: TODO: COMPLETAR\\nEmail: TODO: COMPLETAR\\n\\n**EN CONTRA DE:**\\n\\n**{{demandado_nombre}}**\\nCUIT: {{demandado_cuit}}\\nDomicilio: TODO: COMPLETAR\\n\\n**ANTE SU SEÑORÍA JUEZ DE PRIMERA INSTANCIA EN LO LABORAL N° {{juzgado}}**\\n\\n## PERSONERÍA Y COMPETENCIA\\n\\nEl actor, {{actor_nombre}}, DNI {{actor_dni}}, comparece por derecho propio y en carácter de parte interesada, a los efectos de formular la presente demanda laboral contra {{demandado_nombre}}, CUIT {{demandado_cuit}}, por las causales que se exponen en el cuerpo de la presente.\\n\\nVengo a peticionar ante V.S. en los términos del art. 1° de la Ley N° 26.522, en razón de encontrarse radicado el domicilio del demandado en esta ciudad de Mendoza, lo que determina la competencia territorial de este Juzgado.\\n\\n## HECHOS\\n\\n{{hechos_detallados}}\\n\\n### RELACIÓN LABORAL\\n\\n1. El actor prestó servicios para el demandado desde TODO: FECHA INICIO hasta TODO: FECHA FIN, en calidad de TODO: CATEGORÍA/ESPECIALIDAD.\\n\\n2. Durante toda la relación laboral, el actor cumplió con sus obligaciones en forma diligente y responsable, siendo reconocido su buen desempeño.\\n\\n3. Las tareas desarrolladas consistían en: TODO: DESCRIPCIÓN DETALLADA DE TAREAS.\\n\\n4. La jornada laboral era de TODO: HORAS DIARIAS, de TODO: HORARIO INICIO a TODO: HORARIO FIN.\\n\\n5. El salario percibido era de $TODO: MONTO MENSUAL, abonándose TODO: FRECUENCIA DE PAGO.\\n\\n### VULNERACIONES DETECTADAS\\n\\n1. **Salarios no registrados**: Durante TODO: PERÍODO, el demandado abonó al actor montos inferiores a los establecidos en el Convenio Colectivo aplicable.\\n\\n2. **Horas extras no abonadas**: El actor trabajó horas extras que no fueron compensadas conforme a la legislación vigente.\\n\\n3. **Vacaciones no gozadas**: El actor no pudo gozar de las vacaciones correspondientes durante TODO: PERÍODO.\\n\\n4. **Aguinaldo proporcional**: Al momento de la extinción del vínculo, el demandado no abonó el aguinaldo proporcional correspondiente.\\n\\n5. **Indemnización por despido**: El actor fue despedido sin causa justificada, correspondiendo las indemnizaciones del art. 232 y 233 de la L.C.T.\\n\\n## DERECHO\\n\\n### FUNDAMENTOS LEGALES\\n\\n1. **Constitución Nacional**: Art. 14 bis - Derecho al trabajo y condiciones dignas de labor.\\n\\n2. **Ley de Contrato de Trabajo (L.C.T.)**:\\n   - Art. 80: Definición de relación laboral\\n   - Art. 232: Indemnización por despido sin causa\\n   - Art. 233: Indemnización sustitutiva de preaviso\\n   - Art. 245: Indemnización por falta de preaviso\\n   - Art. 155: Vacaciones anuales\\n\\n3. **Convenio Colectivo**: TODO: ESPECIFICAR CONVENIO APLICABLE\\n\\n4. **Jurisprudencia**: \\n   - Corte Suprema: \"Vizzoti, Carlos Alberto c/ AMSA S.A. s/ despido\" (2004)\\n   - CSJN: \"Aquino, Isacio c/ Cargo Servicios Industriales S.A.\" (2004)\\n\\n### CÁLCULO DE PRETENSIONES\\n\\n**Salarios no registrados**: ${{monto_estimado}}\\n**Horas extras**: TODO: CÁLCULO\\n**Vacaciones no gozadas**: TODO: CÁLCULO\\n**Aguinaldo proporcional**: TODO: CÁLCULO\\n**Indemnización art. 232 L.C.T.**: TODO: CÁLCULO\\n**Indemnización art. 233 L.C.T.**: TODO: CÁLCULO\\n**Indemnización art. 245 L.C.T.**: TODO: CÁLCULO\\n\\n**TOTAL ESTIMADO**: ${{monto_estimado}}\\n\\n## PETITORIO\\n\\nPor lo expuesto, vengo a solicitar a V.S. tenga a bien:\\n\\n1. **HACER LUGAR** a la presente demanda laboral formulada contra {{demandado_nombre}}.\\n\\n2. **CONDENAR** al demandado al pago de las sumas adeudadas por salarios no registrados, horas extras, vacaciones no gozadas, aguinaldo proporcional e indemnizaciones por despido.\\n\\n3. **CONDENAR** al demandado al pago de los intereses y actualizaciones correspondientes desde la fecha de la extinción del vínculo.\\n\\n4. **CONDENAR** al demandado al pago de las costas del proceso.\\n\\n5. **DESIGNAR** perito contador para la liquidación de las sumas adeudadas, de no arribarse a acuerdo entre las partes.\\n\\n## PRUEBA\\n\\nPara mejor proveer, ofrezco la siguiente prueba:\\n\\n### DOCUMENTAL\\n{{prueba_documental}}\\n\\n### TESTIMONIAL  \\n{{testigos}}\\n\\n### INFORMATIVA\\n{{oficios}}\\n\\n## AUTORIZADOS\\n{{autorizados}}\\n\\n## RESERVA DE CASO FEDERAL\\n\\nEn caso de que la sentencia que se dicte en autos fuera adversa a los intereses del actor, se reserva el derecho de plantear las cuestiones de constitucionalidad que correspondan ante la Corte Suprema de Justicia de la Nación.\\n\\nPor lo expuesto, pido a V.S. tenga a bien hacer lugar a la presente demanda y condenar al demandado en los términos solicitados.\\n\\nMendoza, TODO: FECHA.\\n\\n{{actor_nombre}}\\nDNI: {{actor_dni}}\\nFirma: _________________'\n);",
+        "options": {}
+      },
+      "id": "postgres-insert-demandas",
+      "name": "Insertar Demanda Laboral",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [680, 120],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-legal-agent",
+          "name": "PostgreSQL Legal Agent"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- =============================================================================\n-- PLANTILLA: CARTA DOCUMENTO\n-- =============================================================================\nINSERT INTO templates (id, type, jurisdiction, version, prompt_vars, body_md) VALUES (\n    uuid_generate_v4(),\n    'carta_documento',\n    'Mendoza',\n    1,\n    '{\n        \"remitente_nombre\": \"string\",\n        \"remitente_dni\": \"string\",\n        \"destinatario_nombre\": \"string\", \n        \"destinatario_dni\": \"string\",\n        \"motivo\": \"string\",\n        \"plazo_dias\": \"string\",\n        \"consecuencias\": \"string\"\n    }',\n    '# CARTA DOCUMENTO\\n\\n**{{remitente_nombre}}**\\nDNI: {{remitente_dni}}\\nDomicilio: TODO: COMPLETAR\\nTeléfono: TODO: COMPLETAR\\nEmail: TODO: COMPLETAR\\n\\n**A:**\\n\\n**{{destinatario_nombre}}**\\nDNI: {{destinatario_dni}}\\nDomicilio: TODO: COMPLETAR\\n\\n**ASUNTO**: {{motivo}}\\n\\n---\\n\\n**{{destinatario_nombre}}:**\\n\\nPor la presente, le comunico que:\\n\\nTODO: DESARROLLAR EL CONTENIDO ESPECÍFICO DE LA CARTA DOCUMENTO\\n\\n### RECLAMO FORMAL\\n\\nLe reclamo formalmente:\\n\\n1. TODO: ESPECIFICAR QUÉ SE RECLAMA\\n2. TODO: FUNDAMENTAR EL RECLAMO\\n3. TODO: MENCIONAR NORMAS APLICABLES\\n\\n### PLAZO Y CONSECUENCIAS\\n\\nLe otorgo un plazo de **{{plazo_dias}} días** a contar desde la recepción de la presente para que proceda a TODO: ESPECIFICAR ACCIÓN REQUERIDA.\\n\\nVencido dicho plazo sin que hubiere cumplido con lo requerido, {{consecuencias}}.\\n\\n### RESERVA DE DERECHOS\\n\\nMe reservo el derecho de ejercer todas las acciones legales que me correspondan, tanto en sede administrativa como judicial, incluyendo pero no limitándose a:\\n\\n- Acción de daños y perjuicios\\n- Medidas cautelares\\n- Acciones específicas previstas en la legislación vigente\\n- Reclamo por los gastos y costas que se generen\\n\\n### NOTIFICACIÓN\\n\\nLa presente carta documento tiene carácter de notificación fehaciente y surte todos los efectos legales previstos en el Código Civil y Comercial de la Nación.\\n\\nMendoza, TODO: FECHA.\\n\\n{{remitente_nombre}}\\nDNI: {{remitente_dni}}\\nFirma: _________________'\n);",
+        "options": {}
+      },
+      "id": "postgres-insert-cartas",
+      "name": "Insertar Carta Documento",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [680, 240],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-legal-agent",
+          "name": "PostgreSQL Legal Agent"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- =============================================================================\n-- PLANTILLA: CONTRATO DE SERVICIOS\n-- =============================================================================\nINSERT INTO templates (id, type, jurisdiction, version, prompt_vars, body_md) VALUES (\n    uuid_generate_v4(),\n    'contrato_servicios',\n    'Mendoza',\n    1,\n    '{\n        \"cliente_nombre\": \"string\",\n        \"cliente_dni\": \"string\",\n        \"proveedor_nombre\": \"string\",\n        \"proveedor_cuit\": \"string\",\n        \"servicio_descripcion\": \"string\",\n        \"monto_total\": \"string\",\n        \"plazo_ejecucion\": \"string\",\n        \"forma_pago\": \"string\"\n    }',\n    '# CONTRATO DE PRESTACIÓN DE SERVICIOS\\n\\n## PARTES\\n\\n**PRIMERA PARTE - CONTRATANTE:**\\n{{cliente_nombre}}\\nDNI: {{cliente_dni}}\\nDomicilio: TODO: COMPLETAR\\nTeléfono: TODO: COMPLETAR\\nEmail: TODO: COMPLETAR\\n\\n**SEGUNDA PARTE - CONTRATISTA:**\\n{{proveedor_nombre}}\\nCUIT: {{proveedor_cuit}}\\nDomicilio: TODO: COMPLETAR\\nTeléfono: TODO: COMPLETAR\\nEmail: TODO: COMPLETAR\\n\\n## OBJETO DEL CONTRATO\\n\\nLas partes convienen en celebrar el presente contrato de prestación de servicios profesionales, mediante el cual la SEGUNDA PARTE se compromete a prestar a la PRIMERA PARTE los siguientes servicios:\\n\\n{{servicio_descripcion}}\\n\\n### ESPECIFICACIONES TÉCNICAS\\n\\nTODO: DETALLAR ESPECIFICACIONES TÉCNICAS DEL SERVICIO\\n\\n## OBLIGACIONES DEL CONTRATISTA\\n\\nLa SEGUNDA PARTE se compromete a:\\n\\n1. Ejecutar los servicios objeto del presente contrato con la mayor diligencia y profesionalismo.\\n\\n2. Cumplir con los plazos establecidos en el presente acuerdo.\\n\\n3. Entregar toda la documentación técnica y administrativa que resulte necesaria.\\n\\n4. Mantener la confidencialidad sobre toda la información que tome conocimiento en el marco de la prestación del servicio.\\n\\n5. Cumplir con todas las normativas vigentes aplicables a la actividad.\\n\\n6. Responder por los daños que pueda ocasionar por su culpa o negligencia en la ejecución del servicio.\\n\\n## OBLIGACIONES DEL CONTRATANTE\\n\\nLa PRIMERA PARTE se compromete a:\\n\\n1. Proporcionar toda la información necesaria para la correcta ejecución del servicio.\\n\\n2. Facilitar el acceso a las instalaciones, equipos y personal que resulte necesario.\\n\\n3. Realizar los pagos en los términos y condiciones establecidos en el presente contrato.\\n\\n4. Colaborar activamente para el cumplimiento de los objetivos del servicio.\\n\\n## PRECIO Y FORMA DE PAGO\\n\\n### MONTO TOTAL\\nEl precio total del servicio es de **${{monto_total}}** (TODO: ESPECIFICAR MONEDA).\\n\\n### FORMA DE PAGO\\n{{forma_pago}}\\n\\nTODO: DETALLAR CRONOGRAMA DE PAGOS SI CORRESPONDE\\n\\n## PLAZO DE EJECUCIÓN\\n\\nEl servicio deberá ser ejecutado en un plazo de **{{plazo_ejecucion}}** a contar desde la firma del presente contrato.\\n\\nTODO: ESPECIFICAR FECHAS LÍMITE PARCIALES SI CORRESPONDE\\n\\n## MODALIDAD DE TRABAJO\\n\\nTODO: ESPECIFICAR SI ES PRESENCIAL, REMOTO O MIXTO\\n\\n## CONFIDENCIALIDAD\\n\\nLas partes se comprometen a mantener la más estricta confidencialidad sobre toda la información que tomen conocimiento en el marco del presente contrato, no pudiendo divulgarla a terceros sin autorización expresa y por escrito.\\n\\n## PROPIEDAD INTELECTUAL\\n\\nTODO: ESPECIFICAR QUÉ PASA CON LOS DERECHOS DE PROPIEDAD INTELECTUAL DE LOS TRABAJOS REALIZADOS\\n\\n## RESCISIÓN\\n\\nEl presente contrato podrá ser rescindido:\\n\\n1. Por mutuo acuerdo entre las partes.\\n2. Por incumplimiento de cualquiera de las obligaciones aquí establecidas, previo requerimiento de cumplimiento con un plazo de TODO: ESPECIFICAR días.\\n3. Por imposibilidad sobreviniente de cumplimiento.\\n\\n## RESOLUCIÓN DE CONTROVERSIAS\\n\\nLas controversias que pudieran suscitarse serán resueltas en primera instancia por mediación, y en caso de no arribarse a acuerdo, por los Tribunales Ordinarios de la Ciudad de Mendoza.\\n\\n## JURISDICCIÓN\\n\\nLas partes se someten a la jurisdicción de los Tribunales Ordinarios de la Ciudad de Mendoza, renunciando a cualquier otro fuero que pudiera corresponderles.\\n\\n## APROBACIÓN\\n\\nEl presente contrato se aprueba en TODO: CANTIDAD de ejemplares de un mismo tenor y a un solo efecto, firmando las partes al pie de cada una de ellas.\\n\\nMendoza, TODO: FECHA.\\n\\n**CONTRATANTE**\\n{{cliente_nombre}}\\nDNI: {{cliente_dni}}\\nFirma: _________________\\n\\n**CONTRATISTA**\\n{{proveedor_nombre}}\\nCUIT: {{proveedor_cuit}}\\nFirma: _________________\\n\\n**TESTIGOS**\\nTODO: COMPLETAR SI ES NECESARIO\\n\\n**TESTIGO 1:** _________________ DNI: ___________\\n**TESTIGO 2:** _________________ DNI: ___________'\n);",
+        "options": {}
+      },
+      "id": "postgres-insert-contratos",
+      "name": "Insertar Contrato Servicios",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [680, 360],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-legal-agent",
+          "name": "PostgreSQL Legal Agent"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- =============================================================================\n-- PLANTILLA: ESCRITO DE PRESENTACIÓN\n-- =============================================================================\nINSERT INTO templates (id, type, jurisdiction, version, prompt_vars, body_md) VALUES (\n    uuid_generate_v4(),\n    'escrito_presentacion',\n    'Mendoza',\n    1,\n    '{\n        \"actor_nombre\": \"string\",\n        \"actor_dni\": \"string\",\n        \"demandado_nombre\": \"string\",\n        \"demandado_cuit\": \"string\",\n        \"tipo_proceso\": \"string\",\n        \"juzgado\": \"string\",\n        \"materia\": \"string\",\n        \"petitorio\": \"string\"\n    }',\n    '# ESCRITO DE PRESENTACIÓN\\n\\n**{{actor_nombre}}**\\nDNI: {{actor_dni}}\\nDomicilio: TODO: COMPLETAR\\nTeléfono: TODO: COMPLETAR\\nEmail: TODO: COMPLETAR\\n\\n**EN CONTRA DE:**\\n\\n**{{demandado_nombre}}**\\n{{demandado_cuit}}\\nDomicilio: TODO: COMPLETAR\\n\\n**ANTE SU SEÑORÍA JUEZ DE {{juzgado}}**\\n\\n## PERSONERÍA Y COMPETENCIA\\n\\nEl actor, {{actor_nombre}}, DNI {{actor_dni}}, comparece por derecho propio y en carácter de parte interesada, a los efectos de formular la presente {{tipo_proceso}} contra {{demandado_nombre}}, {{demandado_cuit}}, por las causales que se exponen en el cuerpo de la presente.\\n\\nVengo a peticionar ante V.S. en los términos del art. TODO: ESPECIFICAR NORMATIVA APLICABLE, en razón de encontrarse radicado el domicilio del demandado en esta ciudad de Mendoza, lo que determina la competencia territorial de este Juzgado.\\n\\n## HECHOS\\n\\n### ANTECEDENTES\\n\\nTODO: DESARROLLAR LOS ANTECEDENTES DEL CASO\\n\\n### HECHOS CONSTITUTIVOS\\n\\n1. TODO: DESCRIBIR HECHO 1\\n\\n2. TODO: DESCRIBIR HECHO 2\\n\\n3. TODO: DESCRIBIR HECHO 3\\n\\n### VULNERACIONES\\n\\nTODO: DETALLAR QUÉ DERECHOS HAN SIDO VULNERADOS Y CÓMO\\n\\n## DERECHO\\n\\n### FUNDAMENTOS LEGALES\\n\\n1. **Constitución Nacional**: TODO: ARTÍCULOS APLICABLES\\n\\n2. **Código Civil y Comercial de la Nación**:\\n   - Art. TODO: ARTÍCULOS APLICABLES\\n   - Art. TODO: ARTÍCULOS APLICABLES\\n\\n3. **Legislación Específica**: TODO: NORMAS ESPECÍFICAS APLICABLES\\n\\n4. **Jurisprudencia**:\\n   - TODO: FALLOS APLICABLES\\n   - TODO: PRECEDENTES RELEVANTES\\n\\n### ANÁLISIS DE LA CUESTIÓN\\n\\nTODO: REALIZAR ANÁLISIS JURÍDICO DEL CASO\\n\\n## PETITORIO\\n\\nPor lo expuesto, vengo a solicitar a V.S. tenga a bien:\\n\\n{{petitorio}}\\n\\n## PRUEBA\\n\\nPara mejor proveer, ofrezco la siguiente prueba:\\n\\n### DOCUMENTAL\\n\\n1. TODO: ESPECIFICAR DOCUMENTOS A OFRECER\\n\\n2. TODO: ESPECIFICAR DOCUMENTOS A OFRECER\\n\\n3. TODO: ESPECIFICAR DOCUMENTOS A OFRECER\\n\\n### TESTIMONIAL\\n\\nTODO: ESPECIFICAR TESTIGOS SI LOS HAY\\n\\n### INFORMATIVA\\n\\nTODO: ESPECIFICAR OFICIOS SI LOS HAY\\n\\n### PERICIAL\\n\\nTODO: ESPECIFICAR PERICIAS SI SON NECESARIAS\\n\\n## AUTORIZADOS\\n\\nTODO: COMPLETAR SI CORRESPONDE\\n\\n## RESERVA DE CASO FEDERAL\\n\\nEn caso de que la sentencia que se dicte en autos fuera adversa a los intereses del actor, se reserva el derecho de plantear las cuestiones de constitucionalidad que correspondan ante la Corte Suprema de Justicia de la Nación.\\n\\n## COSTAS\\n\\nSolicito que se condenen en costas a la parte vencida.\\n\\nPor lo expuesto, pido a V.S. tenga a bien hacer lugar a la presente {{tipo_proceso}} y condenar al demandado en los términos solicitados.\\n\\nMendoza, TODO: FECHA.\\n\\n{{actor_nombre}}\\nDNI: {{actor_dni}}\\nFirma: _________________'\n);",
+        "options": {}
+      },
+      "id": "postgres-insert-escritos",
+      "name": "Insertar Escrito Presentación",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [680, 480],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-legal-agent",
+          "name": "PostgreSQL Legal Agent"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "{\n  \"success\": true,\n  \"message\": \"Plantillas legales insertadas exitosamente\",\n  \"timestamp\": \"{{ $now }}\",\n  \"templates_created\": [\n    {\n      \"type\": \"demanda_laboral\",\n      \"jurisdiction\": \"Mendoza\",\n      \"version\": 1,\n      \"variables\": [\n        \"actor_nombre\", \"actor_dni\", \"demandado_nombre\", \"demandado_cuit\",\n        \"materia\", \"juzgado\", \"monto_estimado\", \"hechos_detallados\",\n        \"prueba_documental\", \"testigos\", \"oficios\", \"autorizados\"\n      ]\n    },\n    {\n      \"type\": \"carta_documento\",\n      \"jurisdiction\": \"Mendoza\",\n      \"version\": 1,\n      \"variables\": [\n        \"remitente_nombre\", \"remitente_dni\", \"destinatario_nombre\",\n        \"destinatario_dni\", \"motivo\", \"plazo_dias\", \"consecuencias\"\n      ]\n    },\n    {\n      \"type\": \"contrato_servicios\",\n      \"jurisdiction\": \"Mendoza\",\n      \"version\": 1,\n      \"variables\": [\n        \"cliente_nombre\", \"cliente_dni\", \"proveedor_nombre\",\n        \"proveedor_cuit\", \"servicio_descripcion\", \"monto_total\",\n        \"plazo_ejecucion\", \"forma_pago\"\n      ]\n    },\n    {\n      \"type\": \"escrito_presentacion\",\n      \"jurisdiction\": \"Mendoza\",\n      \"version\": 1,\n      \"variables\": [\n        \"actor_nombre\", \"actor_dni\", \"demandado_nombre\",\n        \"demandado_cuit\", \"tipo_proceso\", \"juzgado\", \"materia\", \"petitorio\"\n      ]\n    }\n  ]\n}",
+        "options": {}
+      },
+      "id": "response-success",
+      "name": "Respuesta Exitosa",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [900, 300]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "{\n  \"success\": false,\n  \"error\": \"No autorizado\",\n  \"message\": \"Token de autorización inválido o faltante\",\n  \"timestamp\": \"{{ $now }}\"\n}",
+        "responseCode": 401,
+        "options": {}
+      },
+      "id": "response-unauthorized",
+      "name": "Respuesta No Autorizada",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [680, 420]
+    }
+  ],
+  "connections": {
+    "Webhook Setup Seed": {
+      "main": [
+        [
+          {
+            "node": "Verificar Autenticación",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Verificar Autenticación": {
+      "main": [
+        [
+          {
+            "node": "Insertar Demanda Laboral",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respuesta No Autorizada",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Insertar Demanda Laboral": {
+      "main": [
+        [
+          {
+            "node": "Insertar Carta Documento",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Insertar Carta Documento": {
+      "main": [
+        [
+          {
+            "node": "Insertar Contrato Servicios",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Insertar Contrato Servicios": {
+      "main": [
+        [
+          {
+            "node": "Insertar Escrito Presentación",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Insertar Escrito Presentación": {
+      "main": [
+        [
+          {
+            "node": "Respuesta Exitosa",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "pinData": {},
+  "versionId": "1",
+  "triggerCount": 1,
+  "tags": []
+}

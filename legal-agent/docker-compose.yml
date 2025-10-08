@@ -1,0 +1,125 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: legal-postgres
+    environment:
+      POSTGRES_DB: legal
+      POSTGRES_USER: legal_user
+      POSTGRES_PASSWORD: CAMBIAR_PASSWORD_AQUI
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./sql/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql
+      - ./sql/seed_templates.sql:/docker-entrypoint-initdb.d/02-seed_templates.sql
+    ports:
+      - "5432:5432"
+    networks:
+      - legal-network
+    restart: unless-stopped
+
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: legal-qdrant
+    ports:
+      - "6333:6333"
+      - "6334:6334"
+    volumes:
+      - qdrant_data:/qdrant/storage
+    environment:
+      QDRANT__SERVICE__HTTP_PORT: 6333
+      QDRANT__SERVICE__GRPC_PORT: 6334
+    networks:
+      - legal-network
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    container_name: legal-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - legal-network
+    restart: unless-stopped
+
+  n8n:
+    image: n8nio/n8n:latest
+    container_name: legal-n8n
+    ports:
+      - "5678:5678"
+    environment:
+      # Variables de entorno para n8n
+      - PG_HOST=postgres
+      - PG_DB=legal
+      - PG_USER=legal_user
+      - PG_PASS=CAMBIAR_PASSWORD_AQUI
+      - QDRANT_URL=http://qdrant:6333
+      - REDIS_HOST=redis
+      - OPENAI_API_KEY=sk-xxx
+      - EMBEDDINGS_MODEL=text-embedding-3-large
+      - LLM_MODEL=gpt-4o
+      - EVOLUTION_BASE_URL=http://evolutionapi:PORT
+      - EVOLUTION_INSTANCE=instancia123
+      - EVOLUTION_API_KEY=token123
+      - BASE_URL=https://agentlaw.midominio.com
+      - SETUP_TOKEN=legal-agent-2024
+      # Configuración de n8n
+      - N8N_BASIC_AUTH_ACTIVE=true
+      - N8N_BASIC_AUTH_USER=admin
+      - N8N_BASIC_AUTH_PASSWORD=admin123
+      - N8N_HOST=0.0.0.0
+      - N8N_PORT=5678
+      - N8N_PROTOCOL=http
+      - WEBHOOK_URL=https://agentlaw.midominio.com
+      - GENERIC_TIMEZONE=America/Argentina/Mendoza
+      - N8N_LOG_LEVEL=info
+      - N8N_METRICS=true
+      - N8N_DIAGNOSTICS_ENABLED=false
+    volumes:
+      - n8n_data:/home/node/.n8n
+      - ./n8n:/tmp/workflows:ro
+    depends_on:
+      - postgres
+      - qdrant
+      - redis
+    networks:
+      - legal-network
+    restart: unless-stopped
+
+  # Servicio opcional para EvolutionAPI (WhatsApp)
+  evolutionapi:
+    image: evolutionapi/evolution-api:latest
+    container_name: legal-evolution-api
+    ports:
+      - "8080:8080"
+    environment:
+      - AUTHENTICATION_API_KEY=token123
+      - DATABASE_ENABLED=false
+      - REDIS_ENABLED=false
+      - LOG_LEVEL=ERROR
+      - LOG_COLOR=false
+      - CONFIG_SESSION_PHONE_CLIENT=Evolution API
+      - CONFIG_SESSION_PHONE_NAME=Legal Agent
+    volumes:
+      - evolution_data:/evolution/instances
+    networks:
+      - legal-network
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+    driver: local
+  qdrant_data:
+    driver: local
+  redis_data:
+    driver: local
+  n8n_data:
+    driver: local
+  evolution_data:
+    driver: local
+
+networks:
+  legal-network:
+    driver: bridge

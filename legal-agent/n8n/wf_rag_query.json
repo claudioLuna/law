@@ -1,0 +1,482 @@
+{
+  "name": "RAG Query - Legal Agent",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "ask",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-rag-query",
+      "name": "Webhook RAG Query",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [240, 400],
+      "webhookId": "rag-query-webhook"
+    },
+    {
+      "parameters": {
+        "functionCode": "// Validar y preparar entrada\nconst inputData = $input.first().json;\n\n// Validar parámetros requeridos\nif (!inputData.question) {\n  throw new Error('El parámetro question es requerido');\n}\n\n// Preparar datos de entrada\nconst question = inputData.question.trim();\nconst caseId = inputData.case_id || null;\nconst filters = inputData.filters || {};\nconst k = inputData.k || 8;\nconst rerank = inputData.rerank || false;\n\n// Crear hash para cache\nconst crypto = require('crypto');\nconst cacheKey = crypto.createHash('md5')\n  .update(JSON.stringify({ question, caseId, filters, k, rerank }))\n  .digest('hex');\n\n// Preparar filtros para Qdrant\nlet qdrantFilter = null;\nif (Object.keys(filters).length > 0) {\n  qdrantFilter = {\n    must: []\n  };\n  \n  if (filters.jurisdiction) {\n    qdrantFilter.must.push({\n      key: 'jurisdiction',\n      match: { value: filters.jurisdiction }\n    });\n  }\n  \n  if (filters.fuente) {\n    qdrantFilter.must.push({\n      key: 'fuente',\n      match: { value: filters.fuente }\n    });\n  }\n  \n  if (filters.documento) {\n    qdrantFilter.must.push({\n      key: 'documento',\n      match: { value: filters.documento }\n    });\n  }\n  \n  if (filters.date_from || filters.date_to) {\n    const dateRange = {};\n    if (filters.date_from) dateRange.gte = filters.date_from;\n    if (filters.date_to) dateRange.lte = filters.date_to;\n    \n    qdrantFilter.must.push({\n      key: 'date',\n      range: dateRange\n    });\n  }\n  \n  if (caseId) {\n    qdrantFilter.must.push({\n      key: 'case_id',\n      match: { value: caseId }\n    });\n  }\n}\n\nreturn {\n  json: {\n    question: question,\n    case_id: caseId,\n    filters: filters,\n    k: k,\n    rerank: rerank,\n    cache_key: cacheKey,\n    qdrant_filter: qdrantFilter,\n    start_time: Date.now()\n  }\n};"
+      },
+      "id": "function-validate-input",
+      "name": "Validar y Preparar Entrada",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [460, 400]
+    },
+    {
+      "parameters": {
+        "operation": "get",
+        "key": "={{ $json.cache_key }}",
+        "options": {}
+      },
+      "id": "redis-get-cache",
+      "name": "Obtener Cache Redis",
+      "type": "n8n-nodes-base.redis",
+      "typeVersion": 1,
+      "position": [680, 400],
+      "credentials": {
+        "redis": {
+          "id": "redis-legal-agent",
+          "name": "Redis Legal Agent"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "condition-check-cache",
+              "leftValue": "={{ $json }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-cache-hit",
+      "name": "¿Cache Hit?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [900, 400]
+    },
+    {
+      "parameters": {
+        "url": "={{ $vars.OPENAI_API_BASE || 'https://api.openai.com' }}/v1/embeddings",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "openAiApi",
+        "requestMethod": "POST",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "model",
+              "value": "={{ $vars.EMBEDDINGS_MODEL || 'text-embedding-3-large' }}"
+            },
+            {
+              "name": "input",
+              "value": "={{ $('Validar y Preparar Entrada').first().json.question }}"
+            },
+            {
+              "name": "encoding_format",
+              "value": "float"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "openai-embed-question",
+      "name": "Generar Embedding de Pregunta",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1120, 280],
+      "credentials": {
+        "openAiApi": {
+          "id": "openai-api-legal",
+          "name": "OpenAI API Legal Agent"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "={{ $vars.QDRANT_URL }}/collections/legal_chunks/points/search",
+        "authentication": "none",
+        "requestMethod": "POST",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "vector",
+              "value": "={{ $json.data[0].embedding }}"
+            },
+            {
+              "name": "limit",
+              "value": "={{ $('Validar y Preparar Entrada').first().json.k }}"
+            },
+            {
+              "name": "with_payload",
+              "value": "true"
+            },
+            {
+              "name": "with_vector",
+              "value": "false"
+            },
+            {
+              "name": "filter",
+              "value": "={{ JSON.stringify($('Validar y Preparar Entrada').first().json.qdrant_filter) }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "qdrant-search-similar",
+      "name": "Buscar Similares en Qdrant",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1340, 280]
+    },
+    {
+      "parameters": {
+        "functionCode": "// Preparar contexto para LLM\nconst searchResults = $input.first().json.result;\nconst inputData = $('Validar y Preparar Entrada').first().json;\n\nif (!searchResults || searchResults.length === 0) {\n  return {\n    json: {\n      question: inputData.question,\n      context: [],\n      citations: [],\n      has_results: false\n    }\n  };\n}\n\n// Procesar resultados y crear contexto\nconst context = [];\nconst citations = [];\n\nsearchResults.forEach((result, index) => {\n  const payload = result.payload;\n  const score = result.score;\n  \n  context.push({\n    doc_id: payload.doc_id,\n    page: payload.page,\n    fuente: payload.fuente,\n    documento: payload.documento,\n    text: `[${index + 1}] ${payload.doc_id}:${payload.page} - ${payload.fuente}:${payload.documento}\\n\\n${payload.doc_id}\\n\\n` // Texto del chunk vendría de BD\n  });\n  \n  citations.push({\n    doc_id: payload.doc_id,\n    page: payload.page,\n    fuente: payload.fuente,\n    documento: payload.documento,\n    score: score\n  });\n});\n\n// Construir prompt para LLM\nconst systemPrompt = `Eres un asistente legal en Argentina, con foco en Mendoza. \nResponde EXCLUSIVAMENTE con los fragmentos del contexto. \nCita SIEMPRE con el formato {fuente}:{documento}:{pagina} (score={score}).\nSi no hay evidencia suficiente, responde: \"No se encontró evidencia suficiente en las fuentes aportadas\".\nPrioriza normativa/jurisprudencia mendocina; complementa con normativa nacional si está en contexto.\nProhibido inventar artículos, fallos o números de expediente.`;\n\nconst userPrompt = `Pregunta: ${inputData.question}\\n\\nContexto:\\n${context.map(c => c.text).join('\\n\\n')}`;\n\nreturn {\n  json: {\n    question: inputData.question,\n    context: context,\n    citations: citations,\n    has_results: true,\n    system_prompt: systemPrompt,\n    user_prompt: userPrompt,\n    start_time: inputData.start_time\n  }\n};"
+      },
+      "id": "function-prepare-context",
+      "name": "Preparar Contexto para LLM",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [1560, 280]
+    },
+    {
+      "parameters": {
+        "url": "={{ $vars.OPENAI_API_BASE || 'https://api.openai.com' }}/v1/chat/completions",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "openAiApi",
+        "requestMethod": "POST",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "model",
+              "value": "={{ $vars.LLM_MODEL || 'gpt-4o' }}"
+            },
+            {
+              "name": "messages",
+              "value": "[\n  {\n    \"role\": \"system\",\n    \"content\": \"{{ $json.system_prompt }}\"\n  },\n  {\n    \"role\": \"user\",\n    \"content\": \"{{ $json.user_prompt }}\"\n  }\n]"
+            },
+            {
+              "name": "temperature",
+              "value": "0.1"
+            },
+            {
+              "name": "max_tokens",
+              "value": "2000"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 60000
+        }
+      },
+      "id": "openai-generate-answer",
+      "name": "Generar Respuesta con LLM",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1780, 280],
+      "credentials": {
+        "openAiApi": {
+          "id": "openai-api-legal",
+          "name": "OpenAI API Legal Agent"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "insert",
+        "schema": "public",
+        "table": "rag_queries",
+        "columns": "case_id, question, llm_model, k, rerank, latency_ms, answer_md, citations, cost_usd",
+        "additionalFields": {
+          "returnFields": "*"
+        }
+      },
+      "id": "postgres-save-query",
+      "name": "Guardar Consulta RAG",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [2000, 280],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-legal-agent",
+          "name": "PostgreSQL Legal Agent"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "set",
+        "key": "={{ $('Validar y Preparar Entrada').first().json.cache_key }}",
+        "value": "={{ JSON.stringify($json) }}",
+        "options": {
+          "ttl": 1800
+        }
+      },
+      "id": "redis-set-cache",
+      "name": "Guardar en Cache Redis",
+      "type": "n8n-nodes-base.redis",
+      "typeVersion": 1,
+      "position": [2220, 280],
+      "credentials": {
+        "redis": {
+          "id": "redis-legal-agent",
+          "name": "Redis Legal Agent"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "{\n  \"success\": true,\n  \"answer_md\": \"{{ $('Generar Respuesta con LLM').first().json.choices[0].message.content }}\",\n  \"citations\": {{ JSON.stringify($('Preparar Contexto para LLM').first().json.citations) }},\n  \"latency_ms\": {{ $('Preparar Contexto para LLM').first().json.start_time ? Date.now() - $('Preparar Contexto para LLM').first().json.start_time : 0 }},\n  \"cost_usd\": 0,\n  \"timestamp\": \"{{ $now }}\",\n  \"query_id\": \"{{ $('Guardar Consulta RAG').first().json.id }}\",\n  \"cache_hit\": false\n}",
+        "options": {}
+      },
+      "id": "response-success",
+      "name": "Respuesta Exitosa",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [2440, 280]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "{\n  \"success\": true,\n  \"answer_md\": \"{{ $json.answer_md }}\",\n  \"citations\": {{ JSON.stringify($json.citations) }},\n  \"latency_ms\": {{ $json.latency_ms }},\n  \"cost_usd\": {{ $json.cost_usd }},\n  \"timestamp\": \"{{ $json.timestamp }}\",\n  \"query_id\": \"{{ $json.query_id }}\",\n  \"cache_hit\": true\n}",
+        "options": {}
+      },
+      "id": "response-cache-hit",
+      "name": "Respuesta Cache Hit",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1120, 520]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "{\n  \"success\": false,\n  \"error\": \"No se encontró evidencia suficiente\",\n  \"message\": \"No se encontraron documentos relevantes para responder la pregunta\",\n  \"timestamp\": \"{{ $now }}\",\n  \"answer_md\": \"No se encontró evidencia suficiente en las fuentes aportadas\",\n  \"citations\": [],\n  \"latency_ms\": {{ $('Validar y Preparar Entrada').first().json.start_time ? Date.now() - $('Validar y Preparar Entrada').first().json.start_time : 0 }}\n}",
+        "options": {}
+      },
+      "id": "response-no-results",
+      "name": "Respuesta Sin Resultados",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1560, 520]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "{\n  \"success\": false,\n  \"error\": \"Error procesando consulta\",\n  \"message\": \"{{ $json.error || 'Error desconocido' }}\",\n  \"timestamp\": \"{{ $now }}\",\n  \"error_details\": {{ JSON.stringify($json) }}\n}",
+        "responseCode": 500,
+        "options": {}
+      },
+      "id": "response-error",
+      "name": "Respuesta Error",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1780, 520]
+    },
+    {
+      "parameters": {
+        "operation": "insert",
+        "schema": "public",
+        "table": "audit_logs",
+        "columns": "actor, action, entity, entity_id, diff, ip",
+        "additionalFields": {
+          "returnFields": "*"
+        }
+      },
+      "id": "audit-log-error",
+      "name": "Log Error en Auditoría",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [2000, 520],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-legal-agent",
+          "name": "PostgreSQL Legal Agent"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Webhook RAG Query": {
+      "main": [
+        [
+          {
+            "node": "Validar y Preparar Entrada",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validar y Preparar Entrada": {
+      "main": [
+        [
+          {
+            "node": "Obtener Cache Redis",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Obtener Cache Redis": {
+      "main": [
+        [
+          {
+            "node": "¿Cache Hit?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "¿Cache Hit?": {
+      "main": [
+        [
+          {
+            "node": "Respuesta Cache Hit",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Generar Embedding de Pregunta",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generar Embedding de Pregunta": {
+      "main": [
+        [
+          {
+            "node": "Buscar Similares en Qdrant",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Buscar Similares en Qdrant": {
+      "main": [
+        [
+          {
+            "node": "Preparar Contexto para LLM",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Preparar Contexto para LLM": {
+      "main": [
+        [
+          {
+            "node": "Generar Respuesta con LLM",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generar Respuesta con LLM": {
+      "main": [
+        [
+          {
+            "node": "Guardar Consulta RAG",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Guardar Consulta RAG": {
+      "main": [
+        [
+          {
+            "node": "Guardar en Cache Redis",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Guardar en Cache Redis": {
+      "main": [
+        [
+          {
+            "node": "Respuesta Exitosa",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "errorWorkflow": {
+      "id": "error-handler-workflow"
+    }
+  },
+  "staticData": null,
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "pinData": {},
+  "versionId": "1",
+  "triggerCount": 1,
+  "tags": []
+}

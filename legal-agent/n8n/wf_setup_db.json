@@ -1,0 +1,177 @@
+{
+  "name": "Setup Database - Legal Agent",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "setup/db",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-setup-db",
+      "name": "Webhook Setup DB",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [240, 300],
+      "webhookId": "setup-db-webhook"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "condition-check-auth",
+              "leftValue": "={{ $json.headers.authorization }}",
+              "rightValue": "Bearer {{ $vars.SETUP_TOKEN || 'legal-agent-2024' }}",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-auth-check",
+      "name": "Verificar Autenticación",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- =============================================================================\n-- SCHEMA LEGAL AGENT - ARGENTINA (MENDOZA)\n-- Sistema de gestión legal con RAG y redacción automatizada\n-- =============================================================================\n\n-- Extensión para UUIDs\nCREATE EXTENSION IF NOT EXISTS \"uuid-ossp\";\n\n-- =============================================================================\n-- TABLA: CASOS LEGALES\n-- =============================================================================\nCREATE TABLE cases (\n    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),\n    code TEXT UNIQUE NOT NULL,\n    title TEXT NOT NULL,\n    status TEXT NOT NULL CHECK (status IN ('pending', 'in_process', 'completed')) DEFAULT 'pending',\n    priority TEXT NOT NULL CHECK (priority IN ('low', 'medium', 'high')) DEFAULT 'medium',\n    due_at TIMESTAMPTZ,\n    client_name TEXT,\n    jurisdiction TEXT NOT NULL DEFAULT 'Mendoza',\n    notes TEXT,\n    created_at TIMESTAMPTZ DEFAULT NOW(),\n    updated_at TIMESTAMPTZ DEFAULT NOW()\n);\n\n-- Índices para cases\nCREATE INDEX idx_cases_status ON cases(status);\nCREATE INDEX idx_cases_priority ON cases(priority);\nCREATE INDEX idx_cases_due_at ON cases(due_at);\nCREATE INDEX idx_cases_jurisdiction ON cases(jurisdiction);\nCREATE INDEX idx_cases_client_name ON cases(client_name);\n\n-- =============================================================================\n-- TABLA: DOCUMENTOS\n-- =============================================================================\nCREATE TABLE documents (\n    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),\n    case_id UUID REFERENCES cases(id) ON DELETE CASCADE,\n    filename TEXT NOT NULL,\n    mime TEXT NOT NULL,\n    storage_url TEXT,\n    pages INTEGER DEFAULT 0,\n    hash_sha256 TEXT UNIQUE,\n    source TEXT NOT NULL DEFAULT 'upload',\n    ingested_at TIMESTAMPTZ DEFAULT NOW()\n);\n\n-- Índices para documents\nCREATE INDEX idx_documents_case_id ON documents(case_id);\nCREATE INDEX idx_documents_hash ON documents(hash_sha256);\nCREATE INDEX idx_documents_source ON documents(source);\nCREATE INDEX idx_documents_ingested_at ON documents(ingested_at);\n\n-- =============================================================================\n-- TABLA: CHUNKS DE DOCUMENTOS\n-- =============================================================================\nCREATE TABLE doc_chunks (\n    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),\n    doc_id UUID NOT NULL REFERENCES documents(id) ON DELETE CASCADE,\n    chunk_index INTEGER NOT NULL,\n    text TEXT NOT NULL,\n    tokens INTEGER NOT NULL,\n    qdrant_point_id TEXT UNIQUE,\n    metadata JSONB DEFAULT '{}',\n    created_at TIMESTAMPTZ DEFAULT NOW()\n);\n\n-- Índices para doc_chunks\nCREATE INDEX idx_doc_chunks_doc_id ON doc_chunks(doc_id);\nCREATE INDEX idx_doc_chunks_chunk_index ON doc_chunks(chunk_index);\nCREATE INDEX idx_doc_chunks_qdrant_id ON doc_chunks(qdrant_point_id);\nCREATE INDEX idx_doc_chunks_metadata ON doc_chunks USING GIN(metadata);\n\n-- =============================================================================\n-- TABLA: PLANTILLAS DE DOCUMENTOS\n-- =============================================================================\nCREATE TABLE templates (\n    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),\n    type TEXT NOT NULL,\n    jurisdiction TEXT NOT NULL DEFAULT 'Mendoza',\n    version INTEGER NOT NULL DEFAULT 1,\n    prompt_vars JSONB DEFAULT '{}',\n    body_md TEXT NOT NULL,\n    created_at TIMESTAMPTZ DEFAULT NOW()\n);\n\n-- Índices para templates\nCREATE INDEX idx_templates_type ON templates(type);\nCREATE INDEX idx_templates_jurisdiction ON templates(jurisdiction);\nCREATE INDEX idx_templates_type_jurisdiction ON templates(type, jurisdiction);\nCREATE UNIQUE INDEX idx_templates_unique ON templates(type, jurisdiction, version);\n\n-- =============================================================================\n-- TABLA: CONSULTAS RAG\n-- =============================================================================\nCREATE TABLE rag_queries (\n    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),\n    case_id UUID REFERENCES cases(id) ON DELETE SET NULL,\n    question TEXT NOT NULL,\n    llm_model TEXT NOT NULL,\n    k INTEGER NOT NULL DEFAULT 8,\n    rerank BOOLEAN DEFAULT FALSE,\n    latency_ms INTEGER,\n    answer_md TEXT,\n    citations JSONB DEFAULT '[]',\n    cost_usd NUMERIC(10,4) DEFAULT 0,\n    created_at TIMESTAMPTZ DEFAULT NOW()\n);\n\n-- Índices para rag_queries\nCREATE INDEX idx_rag_queries_case_id ON rag_queries(case_id);\nCREATE INDEX idx_rag_queries_created_at ON rag_queries(created_at);\nCREATE INDEX idx_rag_queries_llm_model ON rag_queries(llm_model);\n\n-- =============================================================================\n-- TABLA: EMAILS\n-- =============================================================================\nCREATE TABLE emails (\n    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),\n    message_id TEXT UNIQUE NOT NULL,\n    from_addr TEXT NOT NULL,\n    subject TEXT,\n    received_at TIMESTAMPTZ DEFAULT NOW(),\n    case_id UUID REFERENCES cases(id) ON DELETE SET NULL,\n    klass TEXT,\n    summary_md TEXT,\n    attachments JSONB DEFAULT '[]'\n);\n\n-- Índices para emails\nCREATE INDEX idx_emails_case_id ON emails(case_id);\nCREATE INDEX idx_emails_from_addr ON emails(from_addr);\nCREATE INDEX idx_emails_received_at ON emails(received_at);\nCREATE INDEX idx_emails_message_id ON emails(message_id);\n\n-- =============================================================================\n-- TABLA: TAREAS\n-- =============================================================================\nCREATE TABLE tasks (\n    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),\n    case_id UUID REFERENCES cases(id) ON DELETE CASCADE,\n    title TEXT NOT NULL,\n    kind TEXT NOT NULL DEFAULT 'general',\n    due_at TIMESTAMPTZ,\n    assignee TEXT,\n    status TEXT NOT NULL CHECK (status IN ('open', 'done')) DEFAULT 'open',\n    origin TEXT,\n    created_at TIMESTAMPTZ DEFAULT NOW(),\n    updated_at TIMESTAMPTZ DEFAULT NOW()\n);\n\n-- Índices para tasks\nCREATE INDEX idx_tasks_case_id ON tasks(case_id);\nCREATE INDEX idx_tasks_status ON tasks(status);\nCREATE INDEX idx_tasks_kind ON tasks(kind);\nCREATE INDEX idx_tasks_due_at ON tasks(due_at);\nCREATE INDEX idx_tasks_assignee ON tasks(assignee);\n\n-- =============================================================================\n-- TABLA: MENSAJES WHATSAPP\n-- =============================================================================\nCREATE TABLE whatsapp_messages (\n    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),\n    case_id UUID REFERENCES cases(id) ON DELETE SET NULL,\n    to_number TEXT NOT NULL,\n    direction TEXT NOT NULL CHECK (direction IN ('inbound', 'outbound')),\n    body TEXT,\n    media_url TEXT,\n    status TEXT DEFAULT 'sent',\n    provider_message_id TEXT,\n    delivered_at TIMESTAMPTZ\n);\n\n-- Índices para whatsapp_messages\nCREATE INDEX idx_whatsapp_case_id ON whatsapp_messages(case_id);\nCREATE INDEX idx_whatsapp_to_number ON whatsapp_messages(to_number);\nCREATE INDEX idx_whatsapp_direction ON whatsapp_messages(direction);\nCREATE INDEX idx_whatsapp_status ON whatsapp_messages(status);\nCREATE INDEX idx_whatsapp_delivered_at ON whatsapp_messages(delivered_at);\n\n-- =============================================================================\n-- TABLA: AUDITORÍA\n-- =============================================================================\nCREATE TABLE audit_logs (\n    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),\n    actor TEXT,\n    action TEXT NOT NULL,\n    entity TEXT NOT NULL,\n    entity_id UUID,\n    diff JSONB DEFAULT '{}',\n    ip TEXT,\n    created_at TIMESTAMPTZ DEFAULT NOW()\n);\n\n-- Índices para audit_logs\nCREATE INDEX idx_audit_actor ON audit_logs(actor);\nCREATE INDEX idx_audit_action ON audit_logs(action);\nCREATE INDEX idx_audit_entity ON audit_logs(entity);\nCREATE INDEX idx_audit_entity_id ON audit_logs(entity_id);\nCREATE INDEX idx_audit_created_at ON audit_logs(created_at);\n\n-- =============================================================================\n-- VISTA: VENCIMIENTOS DE CASOS\n-- =============================================================================\nCREATE OR REPLACE VIEW vw_case_deadlines AS\nSELECT \n    c.id as case_id,\n    c.code,\n    c.title,\n    c.client_name,\n    c.jurisdiction,\n    c.due_at,\n    c.priority,\n    c.status,\n    CASE \n        WHEN c.due_at < NOW() THEN 'overdue'\n        WHEN c.due_at < NOW() + INTERVAL '7 days' THEN 'urgent'\n        WHEN c.due_at < NOW() + INTERVAL '30 days' THEN 'upcoming'\n        ELSE 'future'\n    END as deadline_status,\n    EXTRACT(DAYS FROM (c.due_at - NOW())) as days_until_due\nFROM cases c\nWHERE c.status IN ('pending', 'in_process')\n    AND c.due_at IS NOT NULL\nORDER BY c.due_at ASC;\n\n-- =============================================================================\n-- TRIGGERS PARA UPDATED_AT\n-- =============================================================================\n\n-- Función para actualizar updated_at\nCREATE OR REPLACE FUNCTION update_updated_at_column()\nRETURNS TRIGGER AS $$\nBEGIN\n    NEW.updated_at = NOW();\n    RETURN NEW;\nEND;\n$$ language 'plpgsql';\n\n-- Triggers para updated_at\nCREATE TRIGGER update_cases_updated_at \n    BEFORE UPDATE ON cases \n    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();\n\nCREATE TRIGGER update_tasks_updated_at \n    BEFORE UPDATE ON tasks \n    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();\n\n-- =============================================================================\n-- FUNCIONES AUXILIARES\n-- =============================================================================\n\n-- Función para generar código único de caso\nCREATE OR REPLACE FUNCTION generate_case_code(jurisdiction TEXT DEFAULT 'MEN')\nRETURNS TEXT AS $$\nDECLARE\n    year_part TEXT;\n    sequence_part TEXT;\n    new_code TEXT;\nBEGIN\n    year_part := TO_CHAR(NOW(), 'YYYY');\n    \n    SELECT COALESCE(MAX(\n        CAST(SUBSTRING(code FROM '[0-9]+$') AS INTEGER)\n    ), 0) + 1\n    INTO sequence_part\n    FROM cases \n    WHERE code LIKE jurisdiction || '-' || year_part || '-%';\n    \n    new_code := jurisdiction || '-' || year_part || '-' || LPAD(sequence_part::TEXT, 4, '0');\n    \n    RETURN new_code;\nEND;\n$$ LANGUAGE plpgsql;\n\n-- Función para limpiar texto para embeddings\nCREATE OR REPLACE FUNCTION clean_text_for_embedding(input_text TEXT)\nRETURNS TEXT AS $$\nBEGIN\n    RETURN REGEXP_REPLACE(\n        REGEXP_REPLACE(\n            REGEXP_REPLACE(\n                UPPER(TRIM(input_text)),\n                '[^\\w\\s]', ' ', 'g'\n            ),\n            '\\s+', ' ', 'g'\n        ),\n        '^\\s+|\\s+$', '', 'g'\n    );\nEND;\n$$ LANGUAGE plpgsql;",
+        "options": {}
+      },
+      "id": "postgres-execute-schema",
+      "name": "Ejecutar Schema SQL",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [680, 180],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-legal-agent",
+          "name": "PostgreSQL Legal Agent"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "{\n  \"success\": true,\n  \"message\": \"Base de datos configurada exitosamente\",\n  \"timestamp\": \"{{ $now }}\",\n  \"tables_created\": [\n    \"cases\", \"documents\", \"doc_chunks\", \"templates\", \n    \"rag_queries\", \"emails\", \"tasks\", \"whatsapp_messages\", \n    \"audit_logs\"\n  ],\n  \"views_created\": [\"vw_case_deadlines\"],\n  \"functions_created\": [\n    \"update_updated_at_column\", \"generate_case_code\", \n    \"clean_text_for_embedding\"\n  ]\n}",
+        "options": {}
+      },
+      "id": "response-success",
+      "name": "Respuesta Exitosa",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [900, 180]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "{\n  \"success\": false,\n  \"error\": \"No autorizado\",\n  \"message\": \"Token de autorización inválido o faltante\",\n  \"timestamp\": \"{{ $now }}\"\n}",
+        "responseCode": 401,
+        "options": {}
+      },
+      "id": "response-unauthorized",
+      "name": "Respuesta No Autorizada",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [680, 420]
+    },
+    {
+      "parameters": {
+        "operation": "insert",
+        "schema": "public",
+        "table": "audit_logs",
+        "columns": "actor, action, entity, entity_id, diff, ip",
+        "additionalFields": {
+          "returnFields": "*"
+        }
+      },
+      "id": "audit-log-error",
+      "name": "Log Error en Auditoría",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [900, 420],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-legal-agent",
+          "name": "PostgreSQL Legal Agent"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Webhook Setup DB": {
+      "main": [
+        [
+          {
+            "node": "Verificar Autenticación",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Verificar Autenticación": {
+      "main": [
+        [
+          {
+            "node": "Ejecutar Schema SQL",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respuesta No Autorizada",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ejecutar Schema SQL": {
+      "main": [
+        [
+          {
+            "node": "Respuesta Exitosa",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Respuesta No Autorizada": {
+      "main": [
+        [
+          {
+            "node": "Log Error en Auditoría",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "pinData": {},
+  "versionId": "1",
+  "triggerCount": 1,
+  "tags": []
+}

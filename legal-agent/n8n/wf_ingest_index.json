@@ -1,0 +1,426 @@
+{
+  "name": "Ingest Documents - Legal Agent",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "ingest",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-ingest",
+      "name": "Webhook Ingest",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [240, 400],
+      "webhookId": "ingest-webhook"
+    },
+    {
+      "parameters": {
+        "functionCode": "// Validar entrada y preparar datos\nconst inputData = $input.first().json;\n\n// Verificar si es multipart/form-data (archivo) o JSON (URL)\nlet fileData = null;\nlet fileInfo = {};\nlet sourceText = '';\nlet metadata = {};\n\nif (inputData.file) {\n  // Archivo subido via multipart\n  fileData = inputData.file;\n  fileInfo = {\n    filename: fileData.filename || 'documento.pdf',\n    mime: fileData.mimetype || 'application/pdf',\n    size: fileData.size || 0\n  };\n  \n  // Extraer texto del archivo (simulado - en producción usar librería real)\n  if (fileData.mimetype.includes('pdf')) {\n    sourceText = 'TEXTO EXTRAÍDO DEL PDF: Lorem ipsum dolor sit amet...'; // Simulado\n  } else if (fileData.mimetype.includes('docx')) {\n    sourceText = 'TEXTO EXTRAÍDO DEL DOCX: Lorem ipsum dolor sit amet...'; // Simulado\n  } else {\n    sourceText = 'TEXTO EXTRAÍDO: Lorem ipsum dolor sit amet...'; // Simulado\n  }\n} else if (inputData.url) {\n  // URL para descargar\n  fileInfo = {\n    filename: inputData.filename || 'documento_descargado.pdf',\n    mime: inputData.mime || 'application/pdf',\n    size: 0\n  };\n  sourceText = 'TEXTO DESCARGADO DE URL: Lorem ipsum dolor sit amet...'; // Simulado\n} else {\n  throw new Error('Se requiere archivo o URL');\n}\n\n// Metadatos del documento\nmetadata = {\n  case_id: inputData.case_id || null,\n  fuente: inputData.fuente || 'upload',\n  documento: inputData.documento || fileInfo.filename,\n  jurisdiction: inputData.jurisdiction || 'Mendoza',\n  date: inputData.date || new Date().toISOString().split('T')[0],\n  tags: inputData.tags || ''\n};\n\n// Generar hash del contenido\nconst crypto = require('crypto');\nconst hash = crypto.createHash('sha256').update(sourceText).digest('hex');\n\n// Generar ID único para el documento\nconst docId = require('uuid').v4();\n\nreturn {\n  json: {\n    doc_id: docId,\n    file_info: fileInfo,\n    source_text: sourceText,\n    metadata: metadata,\n    hash_sha256: hash,\n    original_input: inputData\n  }\n};"
+      },
+      "id": "function-validate-input",
+      "name": "Validar y Preparar Entrada",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [460, 400]
+    },
+    {
+      "parameters": {
+        "operation": "select",
+        "schema": "public",
+        "table": "documents",
+        "where": {
+          "conditions": [
+            {
+              "column": "hash_sha256",
+              "operator": "equal",
+              "value": "={{ $json.hash_sha256 }}"
+            }
+          ]
+        },
+        "additionalFields": {
+          "returnFields": "*"
+        }
+      },
+      "id": "postgres-check-duplicate",
+      "name": "Verificar Duplicado",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [680, 400],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-legal-agent",
+          "name": "PostgreSQL Legal Agent"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "condition-check-duplicate",
+              "leftValue": "={{ $json.length }}",
+              "rightValue": "0",
+              "operator": {
+                "type": "number",
+                "operation": "equal"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-not-duplicate",
+      "name": "¿Documento Nuevo?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [900, 400]
+    },
+    {
+      "parameters": {
+        "operation": "insert",
+        "schema": "public",
+        "table": "documents",
+        "columns": "id, case_id, filename, mime, storage_url, pages, hash_sha256, source",
+        "additionalFields": {
+          "returnFields": "*"
+        }
+      },
+      "id": "postgres-insert-document",
+      "name": "Insertar Documento",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [1120, 280],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-legal-agent",
+          "name": "PostgreSQL Legal Agent"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "functionCode": "// Función para dividir texto en chunks\nfunction chunkText(text, chunkSize = 1500, overlap = 200) {\n  const chunks = [];\n  const words = text.split(' ');\n  \n  for (let i = 0; i < words.length; i += chunkSize - overlap) {\n    const chunk = words.slice(i, i + chunkSize).join(' ');\n    const tokens = chunk.split(' ').length; // Estimación simple\n    \n    chunks.push({\n      text: chunk,\n      tokens: tokens,\n      chunk_index: chunks.length,\n      page: Math.floor(i / 500) + 1 // Estimación de página\n    });\n  }\n  \n  return chunks;\n}\n\nconst docData = $input.first().json;\nconst sourceText = docData.source_text;\n\n// Crear chunks del texto\nconst chunks = chunkText(sourceText, 1500, 200);\n\nreturn chunks.map((chunk, index) => ({\n  json: {\n    doc_id: docData.doc_id,\n    chunk_index: chunk.chunk_index,\n    text: chunk.text,\n    tokens: chunk.tokens,\n    page: chunk.page,\n    metadata: {\n      ...docData.metadata,\n      chunk_index: chunk.chunk_index,\n      page: chunk.page,\n      tokens: chunk.tokens\n    }\n  }\n}));"
+      },
+      "id": "function-create-chunks",
+      "name": "Crear Chunks del Texto",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [1340, 280]
+    },
+    {
+      "parameters": {
+        "url": "={{ $vars.OPENAI_API_BASE || 'https://api.openai.com' }}/v1/embeddings",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "openAiApi",
+        "requestMethod": "POST",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "model",
+              "value": "={{ $vars.EMBEDDINGS_MODEL || 'text-embedding-3-large' }}"
+            },
+            {
+              "name": "input",
+              "value": "={{ $json.text }}"
+            },
+            {
+              "name": "encoding_format",
+              "value": "float"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 60000
+        }
+      },
+      "id": "openai-create-embeddings",
+      "name": "Generar Embeddings",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1560, 280],
+      "credentials": {
+        "openAiApi": {
+          "id": "openai-api-legal",
+          "name": "OpenAI API Legal Agent"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "={{ $vars.QDRANT_URL }}/collections/legal_chunks/points",
+        "authentication": "none",
+        "requestMethod": "PUT",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "points",
+              "value": "[\n  {\n    \"id\": \"{{ $json.doc_id }}_{{ $json.chunk_index }}\",\n    \"vector\": {{ $json.embedding }},\n    \"payload\": {\n      \"doc_id\": \"{{ $json.doc_id }}\",\n      \"case_id\": \"{{ $json.metadata.case_id || '' }}\",\n      \"chunk_index\": {{ $json.chunk_index }},\n      \"page\": {{ $json.page }},\n      \"fuente\": \"{{ $json.metadata.fuente }}\",\n      \"documento\": \"{{ $json.metadata.documento }}\",\n      \"jurisdiction\": \"{{ $json.metadata.jurisdiction }}\",\n      \"date\": \"{{ $json.metadata.date }}\",\n      \"tags\": \"{{ $json.metadata.tags }}\",\n      \"tokens\": {{ $json.tokens }},\n      \"created_at\": \"{{ new Date().toISOString() }}\"\n    }\n  }\n]"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "qdrant-upsert-vector",
+      "name": "Upsert en Qdrant",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1780, 280]
+    },
+    {
+      "parameters": {
+        "operation": "insert",
+        "schema": "public",
+        "table": "doc_chunks",
+        "columns": "doc_id, chunk_index, text, tokens, qdrant_point_id, metadata",
+        "additionalFields": {
+          "returnFields": "*"
+        }
+      },
+      "id": "postgres-insert-chunk",
+      "name": "Insertar Chunk en BD",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [2000, 280],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-legal-agent",
+          "name": "PostgreSQL Legal Agent"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "functionCode": "// Agregar embedding al chunk\nconst chunkData = $('Crear Chunks del Texto').first().json;\nconst embeddingData = $input.first().json;\n\nreturn {\n  json: {\n    ...chunkData,\n    embedding: embeddingData.data[0].embedding,\n    qdrant_point_id: `${chunkData.doc_id}_${chunkData.chunk_index}`\n  }\n};"
+      },
+      "id": "function-combine-chunk-embedding",
+      "name": "Combinar Chunk con Embedding",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [1780, 160]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "{\n  \"success\": true,\n  \"message\": \"Documento indexado exitosamente\",\n  \"timestamp\": \"{{ $now }}\",\n  \"doc_id\": \"{{ $('Insertar Documento').first().json.id }}\",\n  \"total_chunks\": {{ $('Insertar Chunk en BD').all().length }},\n  \"fuente\": \"{{ $('Validar y Preparar Entrada').first().json.metadata.fuente }}\",\n  \"documento\": \"{{ $('Validar y Preparar Entrada').first().json.metadata.documento }}\",\n  \"jurisdiction\": \"{{ $('Validar y Preparar Entrada').first().json.metadata.jurisdiction }}\",\n  \"hash_sha256\": \"{{ $('Validar y Preparar Entrada').first().json.hash_sha256 }}\"\n}",
+        "options": {}
+      },
+      "id": "response-success",
+      "name": "Respuesta Exitosa",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [2220, 280]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "{\n  \"success\": false,\n  \"error\": \"Documento duplicado\",\n  \"message\": \"El documento ya existe en el sistema\",\n  \"timestamp\": \"{{ $now }}\",\n  \"existing_doc_id\": \"{{ $('Verificar Duplicado').first().json.id }}\",\n  \"hash_sha256\": \"{{ $('Verificar Duplicado').first().json.hash_sha256 }}\"\n}",
+        "responseCode": 409,
+        "options": {}
+      },
+      "id": "response-duplicate",
+      "name": "Respuesta Duplicado",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1120, 520]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "{\n  \"success\": false,\n  \"error\": \"Error procesando documento\",\n  \"message\": \"{{ $json.error || 'Error desconocido' }}\",\n  \"timestamp\": \"{{ $now }}\",\n  \"error_details\": {{ JSON.stringify($json) }}\n}",
+        "responseCode": 500,
+        "options": {}
+      },
+      "id": "response-error",
+      "name": "Respuesta Error",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1560, 520]
+    },
+    {
+      "parameters": {
+        "operation": "insert",
+        "schema": "public",
+        "table": "audit_logs",
+        "columns": "actor, action, entity, entity_id, diff, ip",
+        "additionalFields": {
+          "returnFields": "*"
+        }
+      },
+      "id": "audit-log-error",
+      "name": "Log Error en Auditoría",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [1780, 520],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-legal-agent",
+          "name": "PostgreSQL Legal Agent"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Webhook Ingest": {
+      "main": [
+        [
+          {
+            "node": "Validar y Preparar Entrada",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validar y Preparar Entrada": {
+      "main": [
+        [
+          {
+            "node": "Verificar Duplicado",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Verificar Duplicado": {
+      "main": [
+        [
+          {
+            "node": "¿Documento Nuevo?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "¿Documento Nuevo?": {
+      "main": [
+        [
+          {
+            "node": "Insertar Documento",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respuesta Duplicado",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Insertar Documento": {
+      "main": [
+        [
+          {
+            "node": "Crear Chunks del Texto",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Crear Chunks del Texto": {
+      "main": [
+        [
+          {
+            "node": "Generar Embeddings",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generar Embeddings": {
+      "main": [
+        [
+          {
+            "node": "Combinar Chunk con Embedding",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Combinar Chunk con Embedding": {
+      "main": [
+        [
+          {
+            "node": "Upsert en Qdrant",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upsert en Qdrant": {
+      "main": [
+        [
+          {
+            "node": "Insertar Chunk en BD",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Insertar Chunk en BD": {
+      "main": [
+        [
+          {
+            "node": "Respuesta Exitosa",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "errorWorkflow": {
+      "id": "error-handler-workflow"
+    }
+  },
+  "staticData": null,
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "pinData": {},
+  "versionId": "1",
+  "triggerCount": 1,
+  "tags": []
+}
