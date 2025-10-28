@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <title>AI Accounting (n8n + Postgres) — Guía Dokploy</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu;max-width:900px;margin:40px auto;line-height:1.6}code,pre{background:#0b0b0b;color:#e6e6e6;padding:2px 6px;border-radius:4px}pre{padding:12px;overflow:auto}</style>
+</head>
+<body>
+  <h1>AI Accounting (n8n + Postgres) — Guía de instalación en Dokploy</h1>
+  <p>Esta guía resume los pasos de <code>README_DOKPLOY.md</code> con formato imprimible.</p>
+  <h2>Requisitos</h2>
+  <ul>
+    <li>Servicios en Dokploy: n8n, postgres, redis, chatwoot, evolutionapi, qdrant (opcional)</li>
+    <li>DNS/HTTPS para n8n</li>
+    <li>Credenciales: OpenAI, SMTP, Stripe, Chatwoot, EvolutionAPI</li>
+  </ul>
+  <h2>1) Esquema en Postgres</h2>
+  <p>Ejecuta <code>sql/schema.sql</code> en tu servicio <code>postgres</code>.</p>
+  <h2>2) Credenciales en n8n</h2>
+  <p>Configura Postgres, OpenAI, SMTP, Stripe, Chatwoot y EvolutionAPI.</p>
+  <h2>3) Importar Workflows</h2>
+  <p>Importa los 5 JSON de <code>workflows/</code> y ajusta placeholders.</p>
+  <h2>4) Webhooks</h2>
+  <pre>Stripe → https://TU_N8N_DOMAIN/webhook/stripe-ar
+Chatwoot → https://TU_N8N_DOMAIN/webhook/chatwoot-agent</pre>
+  <h2>5) Templates</h2>
+  <p>Usa la tabla <code>finance.templates</code> con Mustache.</p>
+  <h2>6) Activación</h2>
+  <ol>
+    <li>AR_stripe_new_and_update</li>
+    <li>AR_overdue_alerts</li>
+    <li>AP_ingest_from_email</li>
+    <li>AP_overdue_alerts</li>
+    <li>Main_agent_chatwoot</li>
+  </ol>
+  <h2>7) Pruebas</h2>
+  <ul>
+    <li>Email con PDF “invoice” → verifica <code>finance.ap_expenses</code></li>
+    <li>Invoice Stripe → verifica <code>finance.ar_invoices</code></li>
+    <li>Chatwoot: “listar AP vencidas”</li>
+  </ul>
+</body>
+</html>
+
